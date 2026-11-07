@@ -1,16 +1,94 @@
 'use client';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { Eye, EyeOff, LockIcon, MailIcon } from '@/components/icons';
+import { LogoAuth } from '@/components/logo';
 import { C } from '@/components/tokens';
+import { Divider } from '@/components/ui/divider';
+import { GoogleBtn } from '@/components/ui/google-btn';
 import { initToken } from '@/lib/api';
 import { errorBodyMessage } from '@/lib/errors';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-export default function LoginPage() {
+const fieldWrap: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  background: C.field,
+  border: `1px solid ${C.border}`,
+  borderRadius: 8,
+  height: 44,
+};
+const inputStyle: React.CSSProperties = {
+  flex: 1,
+  background: 'transparent',
+  border: 'none',
+  outline: 'none',
+  fontFamily: 'inherit',
+  fontSize: 14,
+  color: C.text,
+  paddingLeft: 36,
+  paddingRight: 12,
+};
+
+// Reason codes the API's Google callback and the BFF callback put on /login?error=.
+function googleErrorMessage(code: string | null): string {
+  if (!code) return '';
+  if (code === 'not_a_merchant') {
+    return 'This Google account has no merchant access. Use the email and password you were given.';
+  }
+  return "Google sign-in didn't go through. Please try again.";
+}
+
+function ImagePanel() {
+  return (
+    <div
+      className="auth-image-panel"
+      style={{ width: '58.2%', flexShrink: 0, position: 'relative', overflow: 'hidden' }}
+    >
+      {/* biome-ignore lint/performance/noImgElement: auth background image */}
+      <img
+        src={`${BASE}/assets/auth-bg.png`}
+        alt=""
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          objectPosition: 'top center',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0) 60%, rgba(0,0,0,0.72) 100%)',
+        }}
+      />
+      <div style={{ position: 'absolute', bottom: 40, left: 40, right: 40 }}>
+        <h2
+          style={{ fontWeight: 700, fontSize: 20, color: '#fff', marginBottom: 8, lineHeight: 1.4 }}
+        >
+          Run every branch from one place
+        </h2>
+        <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.6, margin: 0 }}>
+          Manage branches, staff and in-store tablets, keep your catalogue current, and see how each
+          store performs.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LoginFormInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryError = googleErrorMessage(searchParams.get('error'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -38,57 +116,164 @@ export default function LoginPage() {
     }
   }
 
-  const inputClass = 'h-11 w-full rounded-lg border px-3 text-sm outline-none focus:ring-2';
-  const inputStyle = { background: C.field, borderColor: C.border, color: C.text };
+  const shownError = error ?? (queryError || null);
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-2xl border p-6"
-        style={{ background: C.card, borderColor: C.border }}
+    <div
+      style={{
+        minHeight: '100vh',
+        background: `#000 url('${BASE}/assets/auth-screen-bg.png') center center / cover no-repeat`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 20px',
+        boxSizing: 'border-box',
+      }}
+    >
+      <div
+        className="auth-card"
+        style={{
+          width: '100%',
+          maxWidth: 1143,
+          height: 'min(772px, 88vh)',
+          background: C.card,
+          borderRadius: 20,
+          display: 'flex',
+          overflow: 'hidden',
+        }}
       >
-        <h1 className="text-xl font-semibold" style={{ color: C.text }}>
-          Sign in to AiVastra Merchant
-        </h1>
-        <label className="block text-sm" style={{ color: C.mid }}>
-          Email
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={`${inputClass} mt-1`}
-            style={inputStyle}
-          />
-        </label>
-        <label className="block text-sm" style={{ color: C.mid }}>
-          Password
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className={`${inputClass} mt-1`}
-            style={inputStyle}
-          />
-        </label>
-        {error ? (
-          <p role="alert" className="text-sm" style={{ color: C.danger }}>
-            {error}
-          </p>
-        ) : null}
-        <button
-          type="submit"
-          disabled={busy}
-          className="h-11 w-full rounded-lg text-sm font-semibold disabled:opacity-60"
-          style={{ background: C.btnPrimary, color: C.onDark }}
+        <div
+          style={{
+            flex: 1,
+            padding: '48px 40px 48px 48px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            gap: 20,
+            overflowY: 'auto',
+          }}
         >
-          {busy ? 'Signing in...' : 'Sign in'}
-        </button>
-      </form>
-    </main>
+          <LogoAuth />
+          <div>
+            <h1 style={{ fontWeight: 700, fontSize: 22, color: C.text, marginBottom: 4 }}>
+              Welcome Back
+            </h1>
+            <div style={{ fontSize: 14, color: C.mid }}>Sign in to AiVastra Merchant.</div>
+          </div>
+
+          {shownError ? (
+            <div
+              role="alert"
+              style={{
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: `1px solid ${C.danger}`,
+                fontSize: 14,
+                color: C.danger,
+              }}
+            >
+              {shownError}
+            </div>
+          ) : null}
+
+          <GoogleBtn label="Continue with Google" />
+          <Divider label="Or Continue With" />
+
+          <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label htmlFor="email" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
+                Email*
+              </label>
+              <div style={fieldWrap}>
+                <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
+                  <MailIcon />
+                </span>
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  placeholder="Enter your email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label htmlFor="password" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
+                Password*
+              </label>
+              <div style={fieldWrap}>
+                <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
+                  <LockIcon />
+                </span>
+                <input
+                  id="password"
+                  type={showPwd ? 'text' : 'password'}
+                  required
+                  placeholder="Enter password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  style={{ ...inputStyle, paddingRight: 36 }}
+                />
+                <button
+                  type="button"
+                  aria-label={showPwd ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowPwd((v) => !v)}
+                  style={{
+                    position: 'absolute',
+                    right: 10,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: C.mid,
+                    display: 'flex',
+                    padding: 0,
+                  }}
+                >
+                  {showPwd ? <EyeOff /> : <Eye />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={busy}
+              style={{
+                width: '100%',
+                height: 44,
+                borderRadius: 8,
+                border: 'none',
+                cursor: 'pointer',
+                background: C.dark,
+                color: C.onDark,
+                fontFamily: 'inherit',
+                fontWeight: 600,
+                fontSize: 14,
+                opacity: busy ? 0.6 : 1,
+              }}
+            >
+              {busy ? 'Signing in…' : 'Continue'}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', fontSize: 12, color: C.light, margin: 0 }}>
+            Staff sign in with the email and password your admin gave you.
+          </p>
+        </div>
+        <ImagePanel />
+      </div>
+    </div>
+  );
+}
+
+export default function LoginPage(): React.ReactElement {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#000' }} />}>
+      <LoginFormInner />
+    </Suspense>
   );
 }

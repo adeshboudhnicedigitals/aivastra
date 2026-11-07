@@ -1,3 +1,7 @@
+/* Utilities only: this file carries its own reset, so Tailwind preflight stays off. */
+/* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directive */
+@tailwind utilities;
+
 *,
 *::before,
 *::after {
@@ -231,4 +235,36 @@ a {
 }
 .btn-hover-opacity:hover:not(:disabled) {
   opacity: 0.85;
+}
+
+/* Login: hide the hero panel on narrow screens, as in catalogues-web */
+@media (max-width: 860px) {
+  .auth-image-panel {
+    display: none;
+  }
+  .auth-card {
+    height: auto;
+    max-width: 480px;
+  }
+}
+
+.google-btn:hover {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  background: var(--c-field) !important;
+}
+
+/* Sidebar hover — matches catalogues-web */
+.mw-side-link:hover {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  background-color: rgba(189, 37, 135, 0.08) !important;
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  box-shadow: inset 3px 0 0 0 rgba(189, 37, 135, 0.4) !important;
+}
+.mw-side-link:hover span {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  color: #ffffff !important;
+}
+.mw-side-btn:hover {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  background-color: rgba(189, 37, 135, 0.08) !important;
 }

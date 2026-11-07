@@ -22,7 +22,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>{nonce ? <meta name="csp-nonce" content={nonce} /> : null}</head>
+      <head>
+        {nonce ? <meta name="csp-nonce" content={nonce} /> : null}
+        {/* Apply the saved theme before first paint to avoid a flash. */}
+        <script
+          nonce={nonce}
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: theme flash prevention requires an inline script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body
         className={poppins.variable}
         style={{ background: C.bg, color: C.text }}
