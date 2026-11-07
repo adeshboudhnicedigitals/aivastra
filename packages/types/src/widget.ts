@@ -437,6 +437,16 @@ export const AdminMerchantCatalogUpdateBody = z
   );
 export type AdminMerchantCatalogUpdateBody = z.infer<typeof AdminMerchantCatalogUpdateBody>;
 
+// Merchant storefront URL. Shared by the AiVastra admin route and Merchant Web's brand
+// settings so both accept and reject exactly the same values. Base (non-null) form: callers
+// add .nullable()/.optional() as their contract needs.
+// zod's .url() accepts javascript: and data: — this value is rendered as a link.
+export const storeUrlSchema = z
+  .string()
+  .url()
+  .max(500)
+  .refine((v) => /^https?:\/\//i.test(v), 'must be an http(s) URL');
+
 export const AdminMerchantUpdateBody = z
   .object({
     isActive: z.boolean().optional(),
@@ -457,14 +467,7 @@ export const AdminMerchantUpdateBody = z
     // Null = unlimited.
     // Upper bound keeps the value inside Postgres int4 (larger would 500 on write).
     deviceQuotaPerMonth: z.number().int().min(1).max(1_000_000).nullable().optional(),
-    // zod's .url() accepts javascript: and data: — this value is rendered as a link.
-    storeUrl: z
-      .string()
-      .url()
-      .max(500)
-      .refine((v) => /^https?:\/\//i.test(v), 'must be an http(s) URL')
-      .nullable()
-      .optional(),
+    storeUrl: storeUrlSchema.nullable().optional(),
   })
   .refine((body) => Object.values(body).some((v) => v !== undefined), {
     message: 'at least one field is required',

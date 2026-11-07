@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { storeUrlSchema } from './widget.js';
 
 // v1.0 step 3c (docs/superpowers/specs/2026-11-06-v1-merchant-web-dashboards-design.md).
 // Read-only Merchant Web analytics. `from`/`to` are inclusive calendar dates interpreted in
@@ -91,3 +92,8 @@ export interface AnalyticsBreakdownResponse {
   by: AnalyticsBreakdownBy;
   rows: AnalyticsBreakdownRow[];
 }
+
+// Merchant Web brand settings: the only field a merchant admin may edit is storeUrl
+// (null clears it). Logo, overlay, staff limit and device quota stay AiVastra-admin-only.
+export const MerchantBrandUpdateBody = z.object({ storeUrl: storeUrlSchema.nullable() });
+export type MerchantBrandUpdateBody = z.infer<typeof MerchantBrandUpdateBody>;
