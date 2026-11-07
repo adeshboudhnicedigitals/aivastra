@@ -1,10 +1,19 @@
-import { AnalyticsQuery, type AnalyticsSummaryResponse } from '@aivastra/types';
+import {
+  AnalyticsBreakdownQuery,
+  type AnalyticsBreakdownResponse,
+  AnalyticsQuery,
+  type AnalyticsSummaryResponse,
+  AnalyticsTimeseriesQuery,
+  type AnalyticsTimeseriesResponse,
+} from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 import { LOW_CREDIT_THRESHOLD } from '../../credits/low-credit-alert-scheduler.js';
-import { parseWindow } from './params.js';
+import { resolveWindow } from './params.js';
 import {
+  breakdownRows,
   conversionRatio,
   creditTotals,
+  dailyPoints,
   itemTotals,
   ownerBalance,
   sessionTotals,
@@ -20,7 +29,7 @@ export async function merchantAnalyticsRoutes(app: FastifyInstance) {
     { preHandler: app.requireMerchantMember, schema: { querystring: AnalyticsQuery } },
     async (req): Promise<AnalyticsSummaryResponse> => {
       const q = req.query as AnalyticsQuery;
-      const window = parseWindow(q, new Date());
+      const window = await resolveWindow(app.db, q, new Date());
       const scope = await resolveScope(app.db, req.merchantMember!, q);
 
       const [sessions, items, credits, balance] = await Promise.all([
@@ -60,6 +69,48 @@ export async function merchantAnalyticsRoutes(app: FastifyInstance) {
         };
       }
       return body;
+    },
+  );
+
+  app.get(
+    '/v1/merchant/analytics/timeseries',
+    { preHandler: app.requireMerchantMember, schema: { querystring: AnalyticsTimeseriesQuery } },
+    async (req): Promise<AnalyticsTimeseriesResponse> => {
+      const q = req.query as AnalyticsTimeseriesQuery;
+      const window = await resolveWindow(app.db, q, new Date());
+      const scope = await resolveScope(app.db, req.merchantMember!, q);
+      return {
+        window: { from: window.from, to: window.to, tz: window.tz },
+        points: await dailyPoints(app.db, scope, window),
+      };
+    },
+  );
+
+  app.get(
+    '/v1/merchant/analytics/breakdown',
+    { preHandler: app.requireMerchantMember, schema: { querystring: AnalyticsBreakdownQuery } },
+    async (req): Promise<AnalyticsBreakdownResponse> => {
+      const q = req.query as AnalyticsBreakdownQuery;
+      const window = await resolveWindow(app.db, q, new Date());
+      const scope = await resolveScope(app.db, req.merchantMember!, q);
+      const rows = await breakdownRows(app.db, scope, window, q.by);
+      return {
+        by: q.by,
+        rows: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          sessions: r.sessions,
+          tried: r.tried,
+          sold: r.sold,
+          wishlisted: r.wishlisted,
+          conversion: {
+            sold: r.sold,
+            sessions: r.sessions,
+            ratio: conversionRatio(r.sold, r.sessions),
+          },
+          creditsSpent: r.creditsSpent,
+        })),
+      };
     },
   );
 }

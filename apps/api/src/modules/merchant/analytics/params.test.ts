@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseWindow } from './params.js';
+import { assertPgTimeZone, isInvalidTimeZoneError, parseWindow } from './params.js';
 
 const NOW = new Date('2026-11-06T19:00:00Z'); // already 07 Nov 00:30 in IST
 
@@ -52,5 +52,31 @@ describe('parseWindow', () => {
 
   it('accepts exactly 366 days', () => {
     expect(() => parseWindow({ from: '2024-01-01', to: '2024-12-31' }, NOW)).not.toThrow();
+  });
+});
+
+describe('Postgres tz errors map to 400', () => {
+  // The shape postgres-js raises for `AT TIME ZONE 'US/Pacific-New'`.
+  const pgErr = Object.assign(new Error('time zone "US/Pacific-New" not recognized'), {
+    code: '22023',
+  });
+
+  it('recognises the invalid_parameter_value code, bare or wrapped as a cause', () => {
+    expect(isInvalidTimeZoneError(pgErr)).toBe(true);
+    expect(isInvalidTimeZoneError(new Error('wrapped', { cause: pgErr }))).toBe(true);
+    expect(isInvalidTimeZoneError(Object.assign(new Error('x'), { code: '57014' }))).toBe(false);
+    expect(isInvalidTimeZoneError(null)).toBe(false);
+  });
+
+  it('assertPgTimeZone turns that error into a 400 and rethrows anything else', async () => {
+    const dbFailing = (err: unknown) =>
+      ({ execute: async () => Promise.reject(err) }) as unknown as Parameters<
+        typeof assertPgTimeZone
+      >[0];
+    await expect(assertPgTimeZone(dbFailing(pgErr), 'US/Pacific-New')).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    const other = new Error('connection reset');
+    await expect(assertPgTimeZone(dbFailing(other), 'UTC')).rejects.toBe(other);
   });
 });

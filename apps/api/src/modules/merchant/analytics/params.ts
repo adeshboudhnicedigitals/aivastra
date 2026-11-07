@@ -1,4 +1,6 @@
+import type { DB } from '@aivastra/db';
 import type { AnalyticsQuery } from '@aivastra/types';
+import { sql } from 'drizzle-orm';
 import { AppError } from '../../../lib/errors.js';
 
 // Every merchant is in India today; per-request `tz` overrides (no per-merchant setting yet).
@@ -138,4 +140,43 @@ export function parseWindow(
     startUtc: zonedMidnightUtc(fromNum, tz),
     endUtc: zonedMidnightUtc(toNum + 1, tz),
   };
+}
+
+// Postgres' invalid_parameter_value, which is what `AT TIME ZONE` raises for a zone name
+// it does not know.
+const PG_INVALID_PARAMETER_VALUE = '22023';
+
+/** True when a DB error is Postgres refusing a time zone name. */
+export function isInvalidTimeZoneError(err: unknown): boolean {
+  const code = (e: unknown) => (e as { code?: unknown } | null)?.code;
+  return (
+    code(err) === PG_INVALID_PARAMETER_VALUE ||
+    code((err as { cause?: unknown } | null)?.cause) === PG_INVALID_PARAMETER_VALUE
+  );
+}
+
+/**
+ * ICU (Intl) and Postgres ship different tz databases: a name can pass resolveTz yet be
+ * unknown to Postgres (US/Pacific-New is one), and the day bucketing hands the name to
+ * `AT TIME ZONE`. Ask Postgres with the same expression, so such a name is a 400 rather
+ * than a 500 from the real query.
+ */
+export async function assertPgTimeZone(db: DB, tz: string): Promise<void> {
+  try {
+    await db.execute(sql`select now() at time zone ${tz}`);
+  } catch (err) {
+    if (isInvalidTimeZoneError(err)) throw invalid('tz must be an IANA time zone name');
+    throw err;
+  }
+}
+
+/** parseWindow plus the Postgres-side tz check every analytics route needs. */
+export async function resolveWindow(
+  db: DB,
+  q: Pick<AnalyticsQuery, 'from' | 'to' | 'tz'>,
+  now: Date,
+): Promise<AnalyticsWindow> {
+  const w = parseWindow(q, now);
+  await assertPgTimeZone(db, w.tz);
+  return w;
 }
