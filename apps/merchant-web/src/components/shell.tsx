@@ -1,5 +1,5 @@
 'use client';
-import { LayoutDashboard, LogOut, MonitorSmartphone, Store, Users } from 'lucide-react';
+import { LayoutDashboard, LogOut, MonitorSmartphone, Package, Store, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from '@/components/session-provider';
@@ -11,6 +11,7 @@ type NavItem = { href: string; label: string; icon: typeof Store; adminOnly: boo
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Overview', icon: LayoutDashboard, adminOnly: false },
+  { href: '/catalogue', label: 'Catalogue', icon: Package, adminOnly: false },
   { href: '/branches', label: 'Branches', icon: Store, adminOnly: true },
   { href: '/staff', label: 'Staff', icon: Users, adminOnly: true },
   { href: '/devices', label: 'Devices', icon: MonitorSmartphone, adminOnly: false },
