@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { AdminMerchantCatalogUpdateBody } from '@aivastra/types';
-import { and, desc, eq, ilike } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -32,7 +32,8 @@ export async function adminMerchantCatalogRoutes(app: FastifyInstance) {
       search?: string;
     };
 
-    const filters = [];
+    // Staff soft-deleted items are hidden from moderation like every merchant-facing read.
+    const filters = [isNull(schema.merchantCatalogItems.deletedAt)];
     if (merchantId) {
       filters.push(eq(schema.merchantCatalogItems.merchantId, merchantId));
     }
@@ -43,7 +44,7 @@ export async function adminMerchantCatalogRoutes(app: FastifyInstance) {
     const items = await app.db
       .select()
       .from(schema.merchantCatalogItems)
-      .where(filters.length > 1 ? and(...filters) : filters[0])
+      .where(and(...filters))
       .orderBy(desc(schema.merchantCatalogItems.createdAt))
       .limit(200);
 

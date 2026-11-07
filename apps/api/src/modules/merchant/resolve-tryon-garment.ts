@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 
@@ -78,7 +78,14 @@ export async function resolveTryonGarment(
       schema.workflowTemplates,
       eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
     )
-    .where(eq(schema.merchantCatalogItems.id, itemId))
+    // A staff soft-deleted item is gone for try-on: it falls through to the demo lookup,
+    // which cannot match a merchant row's id, so the caller gets the same 404.
+    .where(
+      and(
+        eq(schema.merchantCatalogItems.id, itemId),
+        isNull(schema.merchantCatalogItems.deletedAt),
+      ),
+    )
     .limit(1);
 
   if (own) {
@@ -234,6 +241,9 @@ export async function merchantCanReferenceCatalogItem(
       and(
         eq(schema.merchantCatalogItems.id, itemId),
         eq(schema.merchantCatalogItems.merchantId, merchantId),
+        // Soft-deleted items cannot be newly wishlisted or sold; past session items keep
+        // their id (no FK), so reports of earlier activity are unaffected.
+        isNull(schema.merchantCatalogItems.deletedAt),
       ),
     )
     .limit(1);
