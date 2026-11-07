@@ -118,6 +118,12 @@ export const jobs = pgTable(
     byParent: index('jobs_parent_job_id_idx')
       .on(t.parentJobId)
       .where(sql`${t.parentJobId} is not null`),
+    // Merchant-web dashboards slice jobs by branch / device / in-store session / staff
+    // member. These attribution columns are NULL for every non-merchant job, so partial.
+    byBranch: index('jobs_branch_idx').on(t.branchId).where(sql`${t.branchId} is not null`),
+    byDevice: index('jobs_device_idx').on(t.deviceId).where(sql`${t.deviceId} is not null`),
+    bySession: index('jobs_session_idx').on(t.sessionId).where(sql`${t.sessionId} is not null`),
+    byStaff: index('jobs_staff_idx').on(t.staffId).where(sql`${t.staffId} is not null`),
   }),
 );
 

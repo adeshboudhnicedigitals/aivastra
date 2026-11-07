@@ -1807,6 +1807,13 @@
       "when": 1794023121640,
       "tag": "0258_thankful_gorilla_man",
       "breakpoints": true
+    },
+    {
+      "idx": 259,
+      "version": "7",
+      "when": 1794027149149,
+      "tag": "0259_brainy_revanche",
+      "breakpoints": true
     }
   ]
 }
