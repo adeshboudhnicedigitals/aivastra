@@ -614,3 +614,151 @@ describe('catalogue routes: staff generate', () => {
     expect(await auditsFor(ownerJobId)).toEqual([]);
   });
 });
+
+describe('catalogue routes: fix round 1', () => {
+  async function presignWith(auth: Auth, kind: 'image' | 'thumbnail' | 'flat', assetId: string) {
+    return app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/presign',
+      headers: auth,
+      payload: { kind, assetId, contentType: 'image/jpeg', contentLength: 4 },
+    });
+  }
+
+  async function readBytes(key: string) {
+    const body = await app.storage.getObject(key);
+    return Buffer.from(body as Uint8Array).toString();
+  }
+
+  it("rejects a staff presign that reuses an existing item's assetId and leaves its bytes alone", async () => {
+    const a = await team();
+    const sub = await createSubcategory(a.owner, a.garmentType.id);
+    const { res, r2Key } = await createItem(a.owner, sub.json().id);
+    const assetId = r2Key.split('/')[2]!;
+    const original = await readBytes(r2Key);
+
+    for (const kind of ['image', 'thumbnail', 'flat'] as const) {
+      expect((await presignWith(a.s.auth, kind, assetId)).statusCode).toBe(409);
+    }
+    // Also for an item staff already soft-deleted.
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/merchant/catalog/${res.json().id}`,
+      headers: a.s.auth,
+    });
+    expect((await presignWith(a.s.auth, 'image', assetId)).statusCode).toBe(409);
+    expect(await readBytes(r2Key)).toBe(original);
+  });
+
+  it('lets staff presign every kind under one fresh assetId', async () => {
+    const a = await team();
+    const assetId = randomUUID();
+    for (const kind of ['image', 'thumbnail', 'flat'] as const) {
+      const res = await presignWith(a.s.auth, kind, assetId);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().assetId).toBe(assetId);
+    }
+  });
+
+  it("rejects a staff create that points at an existing (soft-deleted) item's keys", async () => {
+    const a = await team();
+    const sub = await createSubcategory(a.owner, a.garmentType.id);
+    const subId = sub.json().id as string;
+    const { res, r2Key, thumbnailKey } = await createItem(a.owner, subId);
+    await app.inject({
+      method: 'DELETE',
+      url: `/v1/merchant/catalog/${res.json().id}`,
+      headers: a.s.auth,
+    });
+    // The upload-owner record is what a fresh staff presign of those keys would leave behind.
+    await app.redis.set(`upload:owner:${r2Key}`, a.m.merchantId, 'EX', 600);
+    await app.redis.set(`upload:owner:${thumbnailKey}`, a.m.merchantId, 'EX', 600);
+    const create = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog',
+      headers: a.s.auth,
+      payload: {
+        subcategoryId: subId,
+        label: 'Copy',
+        actualPrice: 1,
+        offerPrice: 1,
+        r2Key,
+        thumbnailKey,
+      },
+    });
+    expect(create.statusCode).toBe(409);
+    const thumbOnly = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog',
+      headers: a.s.auth,
+      payload: {
+        subcategoryId: subId,
+        label: 'Copy',
+        actualPrice: 1,
+        offerPrice: 1,
+        r2Key: await presignPut(a.s.auth, 'image'),
+        thumbnailKey,
+      },
+    });
+    expect(thumbOnly.statusCode).toBe(409);
+  });
+
+  it('keeps the owner presign and create behaviour for reused assetIds and keys', async () => {
+    const a = await team();
+    const sub = await createSubcategory(a.owner, a.garmentType.id);
+    const subId = sub.json().id as string;
+    const { r2Key, thumbnailKey } = await createItem(a.owner, subId);
+    const assetId = r2Key.split('/')[2]!;
+    expect((await presignWith(a.owner, 'image', assetId)).statusCode).toBe(200);
+    const create = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog',
+      headers: a.owner,
+      payload: {
+        subcategoryId: subId,
+        label: 'Copy',
+        actualPrice: 1,
+        offerPrice: 1,
+        r2Key,
+        thumbnailKey,
+      },
+    });
+    expect(create.statusCode).toBe(201);
+  });
+
+  it('keeps routes Merchant Web never calls owner-only', async () => {
+    const a = await team();
+    const urls = [
+      '/v1/merchant/catalog/saree-subcategories?category=women',
+      '/v1/merchant/catalog/saree-styles',
+      '/v1/merchant/catalogues',
+      `/v1/merchant/catalog/generate/status?jobIds=${randomUUID()}`,
+    ];
+    for (const url of urls) {
+      expect((await app.inject({ method: 'GET', url, headers: a.s.auth })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'GET', url, headers: a.owner })).statusCode).toBe(200);
+    }
+  });
+
+  it('never exposes the soft-delete columns in item responses', async () => {
+    const a = await team();
+    const sub = await createSubcategory(a.owner, a.garmentType.id);
+    const subId = sub.json().id as string;
+    const hidden = ['deletedAt', 'deletedByStaffId', 'updatedByStaffId'];
+    const { res: created } = await createItem(a.owner, subId);
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/v1/merchant/catalog/${created.json().id}`,
+      headers: a.owner,
+      payload: { label: 'Renamed' },
+    });
+    const list = await app.inject({
+      method: 'GET',
+      url: `/v1/merchant/catalog?includeDemo=false&subcategoryId=${subId}`,
+      headers: a.owner,
+    });
+    for (const body of [created.json(), patched.json(), list.json().items[0]]) {
+      for (const key of hidden) expect(Object.keys(body)).not.toContain(key);
+    }
+  });
+});

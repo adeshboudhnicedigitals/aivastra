@@ -11,7 +11,7 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, isNull, like, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -73,7 +73,65 @@ function catalogJobStaff(
   };
 }
 
-async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogRow) {
+/**
+ * Staff presign guard: a client-supplied assetId must not name the storage directory of an
+ * item that already exists (live or staff soft-deleted), or a staff member could PUT new
+ * bytes over that product's images without any DB write or audit row. A fresh assetId is
+ * still valid for every kind — the UI presigns image, thumbnail and flat under one new
+ * assetId before the item row exists.
+ */
+async function assetIdInUse(app: FastifyInstance, merchantId: string, assetId: string) {
+  const prefixes = [
+    keys.merchantCatalogItem(merchantId, assetId).replace(/image\.jpg$/, ''),
+    keys.merchantCatalogFlatGarment(merchantId, assetId).replace(/garment\.jpg$/, ''),
+  ];
+  const c = schema.merchantCatalogItems;
+  const columns = [c.r2Key, c.thumbnailKey, c.secondR2Key, c.secondThumbnailKey, c.flatSourceKey];
+  // merchantId and assetId are validated UUIDs, so the prefixes hold no LIKE wildcards.
+  const [row] = await app.db
+    .select({ id: c.id })
+    .from(c)
+    .where(
+      and(
+        eq(c.merchantId, merchantId),
+        or(...prefixes.flatMap((prefix) => columns.map((col) => like(col, `${prefix}%`)))),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
+ * Staff create guard: keys already referenced by any item row (deleted or not) cannot be
+ * attached to a new item. Otherwise a staff-created copy could later be owner hard-deleted
+ * and take the soft-deleted original's objects with it.
+ */
+async function keysInUse(app: FastifyInstance, candidateKeys: string[]) {
+  const c = schema.merchantCatalogItems;
+  const [row] = await app.db
+    .select({ id: c.id })
+    .from(c)
+    .where(
+      or(
+        inArray(c.r2Key, candidateKeys),
+        inArray(c.thumbnailKey, candidateKeys),
+        inArray(c.secondR2Key, candidateKeys),
+        inArray(c.secondThumbnailKey, candidateKeys),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+async function serializeCatalogItem(app: FastifyInstance, fullItem: MerchantCatalogRow) {
+  // The soft-delete columns are internal: legacy clients (incl. the Android app) keep seeing
+  // exactly the response shape they had before those columns existed.
+  const {
+    deletedAt: _deletedAt,
+    deletedByStaffId: _deletedByStaffId,
+    updatedByStaffId: _updatedByStaffId,
+    ...item
+  } = fullItem;
   const [imageUrl, thumbnailUrl, secondImageUrl, mannequinResultUrl] = await Promise.all([
     app.storage
       .presignGet(item.r2Key, 3600)
@@ -308,7 +366,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/merchant/catalog/saree-subcategories',
     {
-      preHandler: app.requireMerchantTeam,
+      preHandler: app.requireMerchant,
       schema: {
         querystring: z.object({ category: z.string().optional(), includeDemo: IncludeDemoQuery }),
       },
@@ -603,12 +661,11 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const {
-        assetId = randomUUID(),
-        kind,
-        contentLength,
-        contentType,
-      } = req.body as z.infer<typeof MerchantCatalogPresignBody>;
+      const body = req.body as z.infer<typeof MerchantCatalogPresignBody>;
+      if (body.assetId && staffOf(req) && (await assetIdInUse(app, merchantId, body.assetId))) {
+        throw new AppError('CONFLICT', 409, 'assetId already belongs to a catalog item');
+      }
+      const { assetId = randomUUID(), kind, contentLength, contentType } = body;
       const key =
         kind === 'thumbnail'
           ? keys.merchantCatalogItemThumb(merchantId, assetId)
@@ -709,6 +766,19 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           : []),
       ]);
 
+      const staff = staffOf(req);
+      if (staff) {
+        const candidateKeys = [
+          body.r2Key,
+          body.thumbnailKey,
+          ...(body.secondR2Key ? [body.secondR2Key] : []),
+          ...(body.secondThumbnailKey ? [body.secondThumbnailKey] : []),
+        ];
+        if (await keysInUse(app, candidateKeys)) {
+          throw new AppError('CONFLICT', 409, 'image keys already belong to a catalog item');
+        }
+      }
+
       const values = {
         merchantId,
         subcategoryId: body.subcategoryId,
@@ -721,7 +791,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         secondR2Key: body.secondR2Key ?? null,
         secondThumbnailKey: body.secondThumbnailKey ?? null,
       };
-      const staff = staffOf(req);
       const [item] = staff
         ? await app.db.transaction(async (tx) => {
             const rows = await tx.insert(schema.merchantCatalogItems).values(values).returning();
@@ -909,7 +978,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get('/v1/merchant/catalogues', { preHandler: app.requireMerchantTeam }, async (req) => {
+  app.get('/v1/merchant/catalogues', { preHandler: app.requireMerchant }, async (req) => {
     const merchantId = req.merchantClientId;
     if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
@@ -1080,40 +1149,36 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get(
-    '/v1/merchant/catalog/saree-styles',
-    { preHandler: app.requireMerchantTeam },
-    async () => {
-      const rows = await app.db
-        .select({
-          id: schema.sareeMannequinStyles.id,
-          label: schema.sareeMannequinStyles.label,
-          previewImageKey: schema.sareeMannequinStyles.previewImageKey,
-          sortOrder: schema.sareeMannequinStyles.sortOrder,
-          mannequinTwoInputWorkflowTemplateId:
-            schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
-        })
-        .from(schema.sareeMannequinStyles)
-        .where(eq(schema.sareeMannequinStyles.isActive, true))
-        .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+  app.get('/v1/merchant/catalog/saree-styles', { preHandler: app.requireMerchant }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.sareeMannequinStyles.id,
+        label: schema.sareeMannequinStyles.label,
+        previewImageKey: schema.sareeMannequinStyles.previewImageKey,
+        sortOrder: schema.sareeMannequinStyles.sortOrder,
+        mannequinTwoInputWorkflowTemplateId:
+          schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
+      })
+      .from(schema.sareeMannequinStyles)
+      .where(eq(schema.sareeMannequinStyles.isActive, true))
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
 
-      const items = await Promise.all(
-        rows.map(async (row) => ({
-          id: row.id,
-          label: row.label,
-          previewUrl: row.previewImageKey
-            ? await app.storage
-                .presignGet(row.previewImageKey, 3600)
-                .then((result) => result.url)
-                .catch(() => null)
-            : null,
-          sortOrder: row.sortOrder,
-          supportsTwoInput: row.mannequinTwoInputWorkflowTemplateId !== null,
-        })),
-      );
-      return { items };
-    },
-  );
+    const items = await Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        label: row.label,
+        previewUrl: row.previewImageKey
+          ? await app.storage
+              .presignGet(row.previewImageKey, 3600)
+              .then((result) => result.url)
+              .catch(() => null)
+          : null,
+        sortOrder: row.sortOrder,
+        supportsTwoInput: row.mannequinTwoInputWorkflowTemplateId !== null,
+      })),
+    );
+    return { items };
+  });
 
   app.post(
     '/v1/merchant/catalog/generate',
@@ -1247,7 +1312,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.get(
     '/v1/merchant/catalog/generate/status',
-    { preHandler: app.requireMerchantTeam },
+    { preHandler: app.requireMerchant },
     async (req) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');

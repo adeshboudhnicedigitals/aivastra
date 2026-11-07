@@ -8,7 +8,14 @@ import { requirePermission } from './guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
 
-async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogRow) {
+async function serializeCatalogItem(app: FastifyInstance, fullItem: MerchantCatalogRow) {
+  // Same response shape as before the staff soft-delete columns existed.
+  const {
+    deletedAt: _deletedAt,
+    deletedByStaffId: _deletedByStaffId,
+    updatedByStaffId: _updatedByStaffId,
+    ...item
+  } = fullItem;
   const [imageUrl, thumbnailUrl] = await Promise.all([
     app.storage
       .presignGet(item.r2Key, 3600)
