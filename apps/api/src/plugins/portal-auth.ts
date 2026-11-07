@@ -98,6 +98,16 @@ export const portalAuthPlugin = fp(async (app) => {
     req.merchantMember = await memberFromUserId(await userIdFromBearer(req));
   });
 
+  // Catalogue routes serve the owner and any active staff member alike, and every query
+  // is scoped by req.merchantClientId. Reuse the member check (owner -> admin, staff ->
+  // active staff + branch + merchant, else 403) and project it onto that same field so
+  // handlers written against requireMerchant need no change. A Device token has no bearer
+  // and is rejected 401 by the member check.
+  app.decorate('requireMerchantTeam', async (req, reply) => {
+    await app.requireMerchantMember(req, reply);
+    req.merchantClientId = req.merchantMember?.merchantId;
+  });
+
   // Staff identify themselves on a shared device with their own access JWT in a second
   // header; the device token stays in Authorization.
   app.decorate('resolveStaffFromRequest', async (req) =>
@@ -177,6 +187,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     requireMerchant: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireMerchantMember: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireMerchantTeam: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireMerchantAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireDevice: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     resolveStaffFromRequest: (req: FastifyRequest) => Promise<MerchantMember>;
