@@ -1,3 +1,60 @@
+# 2026-11-07 — v1.0 step 3b: Merchant Web catalogue (committed locally, not pushed)
+
+- **Done:**
+  - Commits since the plan commit `552b9738` (`git log --oneline 552b9738..HEAD`):
+    `aca3f838` feat(merchant): requireMerchantTeam gate for owner and staff;
+    `f78e220a` feat(db): soft-delete columns on merchant_catalog_items;
+    `ce039ec9` feat(merchant): staff access, soft delete and audit for catalogue routes;
+    `97c36928` fix(merchant): protect catalogue assets from staff overwrite, narrow staff routes;
+    `67351549` feat(merchant-web): api client, job stream and shared UI for catalogue;
+    `fd843dab` feat(merchant-web): garment icons for catalogue (adds react-icons);
+    `59e5a561` chore: add react-icons to merchant-web lockfile;
+    `31aff360` feat(merchant-web): catalogue manager (port of /tryon);
+    `9759cff6` feat(merchant-web): catalogue nav link.
+  - Verified at API/BFF level with curl/Python against a local `pnpm --filter @aivastra/merchant-web dev` (port 3010)
+    and a locally started API (port 4000), local `tryon_dev` only (host 127.0.0.1), with the 3a `mw-verify-*` accounts
+    (admin and staff1 passwords reset locally via the API's `hashPassword`) plus a throwaway second merchant
+    `MW3B Other Co` (owner `mw3b-other-owner@example.test`, with one subcategory and one item inserted by SQL). All PASS:
+    admin and staff both list and create subcategories (201), presign + PUT upload (image, thumbnail) + create item (201),
+    and the list shows the item; staff PATCH 200 and `updated_by_staff_id` set (owner PATCH leaves it null); staff DELETE
+    204, item gone from staff and owner lists, row kept with `deleted_at` and `deleted_by_staff_id`, both storage objects
+    still downloadable; `audit_logs` carries `merchant_catalog.create/update/soft_delete` with actor role
+    `MERCHANT_STAFF`; owner DELETE 204, row gone, storage object gone (404), zero audit rows for the owner item; staff
+    DELETE subcategory 403, owner DELETE of an empty subcategory 204; staff 403 and owner 200 on `/v1/merchant/catalogues`,
+    `/catalog/saree-subcategories`, `/catalog/saree-styles`, `/catalog/generate/status`; another merchant's item gives
+    404 on PATCH and DELETE for staff and owner and is left untouched; staff presign with an assetId already used by a
+    live or soft-deleted item 409 (image, thumbnail, flat), a fresh assetId 200, owner with the same assetId still 200
+    (legacy behaviour); owner list/create/patch JSON contains no `deletedAt`, `deletedByStaffId`, `updatedByStaffId`;
+    `/catalogue` without a session cookie redirects 307 to `/login`, with an admin or staff session it returns 200.
+  - Also run: merchant-web `test` (15 files, 60 tests), `typecheck`, `build` (route `/catalogue` present) and
+    `pnpm biome check apps/merchant-web --diagnostic-level=error` all clean; `lint` reports 28 warnings and 2 infos
+    (a11y label warnings in the ported manager files), no errors.
+  - Decisions: subcategory DELETE is owner-only (it cascades to items, so staff get 403, a deviation from the spec text);
+    staff also cannot call four owner-only routes (`saree-subcategories`, `saree-styles`, `/v1/merchant/catalogues`,
+    `generate/status`); staff item delete is a soft delete (no restore UI yet: an AiVastra admin must restore via SQL
+    by clearing `deleted_at`/`deleted_by_staff_id`; a soft-deleted imported or generated item keeps blocking re-import
+    of its source job with 409); the reconcile-held route creates products unaudited; bulk generate audits one row per
+    job; staff generate progress polls every 3s; owner item JSON omits `deletedAt`, `deletedByStaffId` and
+    `updatedByStaffId`.
+- **Failed / Not done:**
+  - NOT RUN — needs a person in a browser: add a product; bulk upload; generate as staff and as owner (the API
+    `generate`/`generate-bulk` routes were also not called: they need ComfyUI and credits); delete as staff and see it
+    vanish; owner hard delete; subcategory delete button hidden for staff; layout at 375px; the bottom nav with five
+    items (Overview, Catalogue, Branches, Staff, Devices) at phone width.
+  - Follow-ups not built: restore UI for staff soft-deleted items; audit of owner writes; owner soft delete.
+  - Nothing deployed or pushed. `pnpm-lock.yaml` still carries a pre-existing uncommitted diff, not committed here.
+- **Open questions / out-of-repo state:**
+  - COPY PAIR: until `/tryon` is retired, a bug fix to any of the six manager files under
+    `apps/catalogues-web/src/app/(app)/tryon` must be mirrored in `apps/merchant-web/src/app/(app)/catalogue`, and
+    vice versa.
+  - `CORS_ORIGIN` must include the Merchant Web origins in every environment (see the 3a entry); browser data calls
+    stay blocked locally until `http://localhost:3010` is listed.
+  - Migration `0258` (additive nullable soft-delete / attribution columns) is applied to the local DB only. It ships
+    via push -> CI/CD -> `db:migrate:prod`; if `origin/dev` takes 0258 first, renumber per `docs/version-control.md`
+    and run `scripts/ci/check-migration-index.mts`.
+  - Local-environment surprise: the dev API (:4000) and web stack were not running when verification started, so a
+    throwaway API process was started for the run and stopped afterwards.
+
 # 2026-11-06 — v1.0 step 3a: Merchant Web foundation (committed locally, not pushed)
 
 - **Done:**
