@@ -52,11 +52,18 @@
     `lowCredit: false`); deactivated branches, staff and devices are listed only when they have activity in the window;
     timezone is fixed to Asia/Kolkata; a window counts a visit by its session start; a foreign id gives an admin zeros
     and a staff 403.
+  - Not added on purpose: the plan's two optional extra indexes (`instore_sessions (merchant_id, branch_id, started_at)` and
+    `session_items (session_id, action)`). EXPLAIN on a throwaway dataset (500k sessions / 1.5M session_items / 510k jobs,
+    target merchant ~50k sessions) used the existing indexes at 8-47 ms (full-year admin items query 132 ms with a hash join).
+  - `wishlisted` is returned by the summary and breakdown APIs but is not rendered in any screen yet (no KPI card, no
+    BreakdownTable column): a deliberate omission to revisit.
 - **Failed / Not done:**
   - NOT RUN — needs a person in a browser: KPI cards, range picker including a custom range, trend chart, branch / staff /
     device drill-down including the Back button and a reload, phone width including the 7-item admin bottom nav at
     360px, empty state, settings save and clear.
   - Follow-ups not built: CSV export, per-merchant timezone, unique shoppers (step 5), rollups when volume requires.
+  - Follow-ups (final review): the Breakdown "Credits" column header does not say "(net of refunds)" although the Overview
+    card does; `bucket=day` is accepted but not validated (the non-strict object strips it; day is the only behaviour).
   - Known limitations: conversion under `by=staff` can exceed 100% (sold by a colleague's item vs session owner); preset
     ranges do not roll over midnight until re-clicked; the empty state says "pair a tablet" for any zero-session range;
     staff briefly see a balance-card skeleton while loading.
@@ -93,6 +100,11 @@
     quiet window. Otherwise first create `jobs_branch_idx`, `jobs_device_idx`, `jobs_session_idx`, `jobs_staff_idx`
     out-of-band with `CREATE INDEX CONCURRENTLY IF NOT EXISTS ... WHERE <col> IS NOT NULL` (same partial predicate as the
     migration) and let `0259` no-op. This is a production write: do it deliberately, not in an ad-hoc session.
+    Trap: if a `CONCURRENTLY` build fails or is cancelled, Postgres leaves an INVALID index under the same name, and
+    `0259`'s `IF NOT EXISTS` would silently skip it, leaving an unusable index. Before `db:migrate:prod` verify
+    `SELECT indexrelid::regclass, indisvalid FROM pg_index WHERE indexrelid::regclass::text IN ('jobs_branch_idx','jobs_device_idx','jobs_session_idx','jobs_staff_idx');`
+    shows `indisvalid = true` for all four; drop and rebuild any invalid one first (a production write: do it
+    deliberately; per CLAUDE.md Production safety it is a human operator action).
   - Migration numbering: `0259` is applied to the local DB only; `origin/dev` newest was `0254` when last checked. If
     `origin/dev` takes `0259` first, renumber per `docs/version-control.md` and run
     `scripts/ci/check-migration-index.mts`.
