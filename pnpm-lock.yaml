@@ -479,6 +479,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.0.0(react@19.0.0)
+      react-icons:
+        specifier: ^5.7.0
+        version: 5.7.0(react@19.0.0)
       tailwind-merge:
         specifier: ^2.5.2
         version: 2.6.1
