@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { JobStreamProvider } from '@/components/job-stream-provider';
 import { SessionProvider, useSession } from '@/components/session-provider';
 import { Shell } from '@/components/shell';
 import { C } from '@/components/tokens';
@@ -21,7 +22,12 @@ function Gate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  return <Shell>{children}</Shell>;
+  // Inside the ready gate so no SSE connection opens on /login or while signed out.
+  return (
+    <JobStreamProvider>
+      <Shell>{children}</Shell>
+    </JobStreamProvider>
+  );
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
