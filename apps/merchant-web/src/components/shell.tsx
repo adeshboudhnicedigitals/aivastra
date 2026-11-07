@@ -1,5 +1,14 @@
 'use client';
-import { LayoutDashboard, LogOut, MonitorSmartphone, Package, Store, Users } from 'lucide-react';
+import {
+  BarChart3,
+  LayoutDashboard,
+  LogOut,
+  MonitorSmartphone,
+  Package,
+  Settings,
+  Store,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from '@/components/session-provider';
@@ -12,9 +21,11 @@ type NavItem = { href: string; label: string; icon: typeof Store; adminOnly: boo
 const NAV: NavItem[] = [
   { href: '/', label: 'Overview', icon: LayoutDashboard, adminOnly: false },
   { href: '/catalogue', label: 'Catalogue', icon: Package, adminOnly: false },
+  { href: '/performance', label: 'Performance', icon: BarChart3, adminOnly: true },
   { href: '/branches', label: 'Branches', icon: Store, adminOnly: true },
   { href: '/staff', label: 'Staff', icon: Users, adminOnly: true },
   { href: '/devices', label: 'Devices', icon: MonitorSmartphone, adminOnly: false },
+  { href: '/settings', label: 'Settings', icon: Settings, adminOnly: true },
 ];
 
 /** Top bar (company + sign out) with a side nav on desktop and a bottom bar at phone width. */
@@ -67,7 +78,7 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
       <div className="flex flex-1 flex-col md:flex-row">
         <nav
           aria-label="Main"
-          className="fixed bottom-0 left-0 right-0 z-40 flex h-[var(--mw-nav-h)] justify-around md:static md:h-auto md:w-52 md:flex-col md:justify-start md:gap-1 md:p-3"
+          className="fixed bottom-0 left-0 right-0 z-40 flex h-[var(--mw-nav-h)] justify-around overflow-x-auto md:static md:h-auto md:w-52 md:flex-col md:justify-start md:gap-1 md:p-3"
           style={{ background: C.navbar, borderTop: `1px solid ${C.border}` }}
         >
           {items.map(({ href, label, icon: Icon }) => {
@@ -77,7 +88,7 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                className="flex flex-1 flex-col items-center gap-1 px-2 py-2 text-xs md:flex-none md:flex-row md:gap-2 md:rounded-lg md:px-3 md:text-sm"
+                className="flex min-w-[64px] flex-1 shrink-0 flex-col items-center gap-1 px-2 py-2 text-xs md:flex-none md:flex-row md:gap-2 md:rounded-lg md:px-3 md:text-sm"
                 style={{
                   color: active ? C.pink : C.mid,
                   fontWeight: active ? 700 : 500,

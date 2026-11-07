@@ -30,9 +30,10 @@ export const fetchBreakdown = (
   range: AnalyticsRange,
   by: AnalyticsBreakdownBy,
   branchId?: string,
+  extra: { staffId?: string; deviceId?: string } = {},
 ) =>
   apiFetch<AnalyticsBreakdownResponse>(
-    `/v1/merchant/analytics/breakdown?${qs(range, { by, branchId })}`,
+    `/v1/merchant/analytics/breakdown?${qs(range, { by, branchId, ...extra })}`,
   );
 
 // 30s: a dashboard people glance at repeatedly; fresh enough without refetching on every
@@ -62,10 +63,20 @@ export function useAnalyticsBreakdown(
   by: AnalyticsBreakdownBy,
   enabled = true,
   branchId?: string,
+  extra: { staffId?: string; deviceId?: string } = {},
 ) {
   return useQuery({
-    queryKey: ['analytics', 'breakdown', by, range?.from, range?.to, branchId ?? null],
-    queryFn: () => fetchBreakdown(range as AnalyticsRange, by, branchId),
+    queryKey: [
+      'analytics',
+      'breakdown',
+      by,
+      range?.from,
+      range?.to,
+      branchId ?? null,
+      extra.staffId ?? null,
+      extra.deviceId ?? null,
+    ],
+    queryFn: () => fetchBreakdown(range as AnalyticsRange, by, branchId, extra),
     enabled: enabled && range !== null,
     staleTime: STALE_MS,
   });
