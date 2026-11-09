@@ -10,6 +10,7 @@ COPY apps/catalogues-web/package.json apps/catalogues-web/
 COPY apps/chatbot/package.json apps/chatbot/
 COPY apps/dispatcher/package.json apps/dispatcher/
 COPY apps/gpu-ops/package.json apps/gpu-ops/
+COPY apps/merchant-web/package.json apps/merchant-web/
 COPY apps/shopify/package.json apps/shopify/
 COPY packages/db/package.json packages/db/
 COPY packages/logger/package.json packages/logger/

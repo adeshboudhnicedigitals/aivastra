@@ -1779,6 +1779,41 @@
       "when": 1793955262021,
       "tag": "0254_spicy_vance_astro",
       "breakpoints": true
+    },
+    {
+      "idx": 255,
+      "version": "7",
+      "when": 1793964182021,
+      "tag": "0255_silky_living_mummy",
+      "breakpoints": true
+    },
+    {
+      "idx": 256,
+      "version": "7",
+      "when": 1793967284543,
+      "tag": "0256_dark_shen",
+      "breakpoints": true
+    },
+    {
+      "idx": 257,
+      "version": "7",
+      "when": 1793969602398,
+      "tag": "0257_military_iron_lad",
+      "breakpoints": true
+    },
+    {
+      "idx": 258,
+      "version": "7",
+      "when": 1794023121640,
+      "tag": "0258_thankful_gorilla_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 259,
+      "version": "7",
+      "when": 1794027149149,
+      "tag": "0259_brainy_revanche",
+      "breakpoints": true
     }
   ]
 }

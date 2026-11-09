@@ -22,6 +22,7 @@ const baseOptions: LoggerOptions = {
       'cookie',
       'req.headers.authorization',
       'req.headers.cookie',
+      'req.headers["x-staff-authorization"]',
       '*.password',
       '*.token',
       '*.secret',

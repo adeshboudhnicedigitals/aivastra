@@ -1,9 +1,54 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { JOB_SOURCE } from '@aivastra/types';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { chargeInStoreTryon } from '../device/entitlement.js';
 import { atomicMerchantDeduct } from './ledger.js';
+
+/** In-store attribution. Absent for every legacy caller; present only from /v1/device/tryon. */
+export interface JobAttribution {
+  branchId: string;
+  deviceId: string;
+  sessionId: string;
+  staffId: string | null;
+  catalogItemId: string;
+}
+
+function attributionColumns(a?: JobAttribution) {
+  return a
+    ? { branchId: a.branchId, deviceId: a.deviceId, sessionId: a.sessionId, staffId: a.staffId }
+    : {};
+}
+
+// Legacy callers keep the exact original deduct; only attributed (device) jobs go through
+// the entitlement function and record the `tried` session item in the same transaction.
+async function chargeJob(
+  // biome-ignore lint/suspicious/noExplicitAny: same tx widening as the original call site.
+  tx: any,
+  merchantId: string,
+  cost: number,
+  jobId: string,
+  a?: JobAttribution,
+) {
+  if (!a) {
+    await atomicMerchantDeduct(tx, merchantId, cost, jobId);
+    return;
+  }
+  await chargeInStoreTryon(tx, { merchantId, deviceId: a.deviceId, cost, jobId });
+  await tx.insert(schema.sessionItems).values({
+    sessionId: a.sessionId,
+    catalogItemId: a.catalogItemId,
+    jobId,
+    action: 'tried',
+    staffId: a.staffId,
+  });
+  await tx
+    .update(schema.instoreSessions)
+    .set({ lastActivityAt: new Date() })
+    .where(eq(schema.instoreSessions.id, a.sessionId));
+}
 
 interface CreateMerchantTryonJobInput {
   merchantId: string;
@@ -14,6 +59,7 @@ interface CreateMerchantTryonJobInput {
   workflowTemplateId: string;
   dispatchTemplateVersion?: number | null;
   kind?: 'quick_tryon';
+  attribution?: JobAttribution;
 }
 
 export async function createMerchantTryonJob(
@@ -33,6 +79,7 @@ export async function createMerchantTryonJob(
       status: 'QUEUED',
       creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_TRYON,
+      ...attributionColumns(input.attribution),
     });
 
     // biome-ignore lint/suspicious/noExplicitAny: nullable widget inputs are wider than Drizzle's inferred insert type.
@@ -50,8 +97,7 @@ export async function createMerchantTryonJob(
       },
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the merchant ledger helper.
-    await atomicMerchantDeduct(tx as any, input.merchantId, cost, jobId);
+    await chargeJob(tx, input.merchantId, cost, jobId, input.attribution);
   });
 
   await app.redis.xadd(
@@ -83,6 +129,7 @@ interface CreateMerchantTryonJobTwoStepInput {
   mannequinWorkflowTemplateVersion?: number | null;
   tryonWorkflowTemplateId: string;
   tryonWorkflowTemplateVersion?: number | null;
+  attribution?: JobAttribution;
 }
 
 /**
@@ -141,6 +188,7 @@ export async function createMerchantTryonJobTwoStep(
       status: 'PENDING_MANNEQUIN',
       creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_TRYON,
+      ...attributionColumns(input.attribution),
     });
     // biome-ignore lint/suspicious/noExplicitAny: nullable widget inputs are wider than Drizzle's inferred insert type.
     await (tx.insert(schema.jobInputs).values as any)({
@@ -158,8 +206,7 @@ export async function createMerchantTryonJobTwoStep(
       },
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the merchant ledger helper.
-    await atomicMerchantDeduct(tx as any, input.merchantId, cost, jobId);
+    await chargeJob(tx, input.merchantId, cost, jobId, input.attribution);
   });
 
   await app.redis.xadd(

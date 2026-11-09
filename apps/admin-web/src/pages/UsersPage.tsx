@@ -4,6 +4,7 @@ import { EditDrawer } from '../components/EditDrawer';
 import { Icon } from '../components/Icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { KV } from '../components/KV';
+import { MerchantOrgPanel } from '../components/MerchantOrgPanel';
 import { NameAvatar } from '../components/NameAvatar';
 import { Pager } from '../components/Pager';
 import { SearchableSelect } from '../components/SearchableSelect';
@@ -34,6 +35,9 @@ const EMPTY_EDIT_MERCHANT_FORM = {
   phone: '',
   businessAddress: '',
   jobRateLimitPerMin: '',
+  staffLimitPerBranch: '2',
+  deviceQuotaPerMonth: '',
+  storeUrl: '',
 };
 const EMPTY_CREATE_USER_FORM = {
   username: '',
@@ -127,6 +131,9 @@ export default function UsersPage({ onNav, toast }: Props) {
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
   // Mirrors the API's requireAdmin(['SUPER_ADMIN', 'ADMIN']) on the agreed-price routes.
   const canSetAgreedPrice = myRole === 'SUPER_ADMIN' || myRole === 'ADMIN';
+  // Branch/staff edits use the same requireAdmin(['SUPER_ADMIN', 'ADMIN']) as the agreed price;
+  // the merchant limits drawer stays on merchants.write (SUPER_ADMIN only).
+  const canEditMerchantOrg = canSetAgreedPrice;
   const [query, setQuery] = useState(
     (location.state as { search?: string; filter?: string })?.search ||
       (location.state as { search?: string; filter?: string })?.filter ||
@@ -953,6 +960,9 @@ export default function UsersPage({ onNav, toast }: Props) {
       phone: m.phone,
       businessAddress: m.businessAddress,
       jobRateLimitPerMin: m.jobRateLimitPerMin != null ? String(m.jobRateLimitPerMin) : '',
+      staffLimitPerBranch: String(m.staffLimitPerBranch),
+      deviceQuotaPerMonth: m.deviceQuotaPerMonth != null ? String(m.deviceQuotaPerMonth) : '',
+      storeUrl: m.storeUrl ?? '',
     });
     setModalParam('edit-merchant');
   }
@@ -985,12 +995,26 @@ export default function UsersPage({ onNav, toast }: Props) {
       phone: m.phone,
       businessAddress: m.businessAddress,
       jobRateLimitPerMin: m.jobRateLimitPerMin != null ? String(m.jobRateLimitPerMin) : '',
+      staffLimitPerBranch: String(m.staffLimitPerBranch),
+      deviceQuotaPerMonth: m.deviceQuotaPerMonth != null ? String(m.deviceQuotaPerMonth) : '',
+      storeUrl: m.storeUrl ?? '',
     });
     editMerchantSyncedRef.current = true;
   }, [modalParam, detail?.merchant]);
 
   async function handleMerchantEditSave() {
     if (!detail?.merchant) return;
+    // An empty field would otherwise become Number('') === 0 and silently block all
+    // staff creation, so refuse to send anything that is not an integer in 0-50.
+    const staffRaw = merchantEditForm.staffLimitPerBranch.trim();
+    const staffLimit = Number(staffRaw);
+    if (staffRaw === '' || !Number.isInteger(staffLimit) || staffLimit < 0 || staffLimit > 50) {
+      toast({
+        kind: 'error',
+        title: 'Staff limit per branch must be a whole number between 0 and 50',
+      });
+      return;
+    }
     setSavingMerchantEdit(true);
     try {
       const trimmedLimit = merchantEditForm.jobRateLimitPerMin.trim();
@@ -1002,6 +1026,14 @@ export default function UsersPage({ onNav, toast }: Props) {
           phone: merchantEditForm.phone,
           businessAddress: merchantEditForm.businessAddress,
           jobRateLimitPerMin: trimmedLimit === '' ? null : Number(trimmedLimit),
+          staffLimitPerBranch: staffLimit,
+          // Blank = unlimited / cleared, which the API takes as null.
+          deviceQuotaPerMonth:
+            merchantEditForm.deviceQuotaPerMonth.trim() === ''
+              ? null
+              : Number(merchantEditForm.deviceQuotaPerMonth),
+          storeUrl:
+            merchantEditForm.storeUrl.trim() === '' ? null : merchantEditForm.storeUrl.trim(),
         }),
       });
       toast({ title: 'Merchant details updated' });
@@ -1426,9 +1458,11 @@ export default function UsersPage({ onNav, toast }: Props) {
                 <h3>Merchant access</h3>
                 {u.merchant && (
                   <div className="tools">
-                    <button className="btn sm ghost" onClick={openEditMerchant}>
-                      <Icon.Edit /> Edit
-                    </button>
+                    {isSuperAdmin && (
+                      <button className="btn sm ghost" onClick={openEditMerchant}>
+                        <Icon.Edit /> Edit
+                      </button>
+                    )}
                     <button
                       className={`btn sm ${u.merchant.isActive ? 'danger' : 'primary'}`}
                       disabled={togglingMerchant}
@@ -1531,6 +1565,15 @@ export default function UsersPage({ onNav, toast }: Props) {
                 )}
               </div>
             </div>
+
+            {u.merchant && (
+              <MerchantOrgPanel
+                key={u.merchant.id}
+                merchantId={u.merchant.id}
+                toast={toast}
+                canEdit={canEditMerchantOrg}
+              />
+            )}
 
             <div className="card" style={{ overflow: 'hidden' }}>
               <div className="card-head">
@@ -2497,6 +2540,42 @@ export default function UsersPage({ onNav, toast }: Props) {
                   onChange={(e) =>
                     setMerchantEditForm((f) => ({ ...f, jobRateLimitPerMin: e.target.value }))
                   }
+                />
+              </div>
+              <div className="field">
+                <label>Staff accounts per branch</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={merchantEditForm.staffLimitPerBranch}
+                  onChange={(e) =>
+                    setMerchantEditForm((f) => ({ ...f, staffLimitPerBranch: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Monthly try-on quota per subscribed device</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  placeholder="Unlimited"
+                  value={merchantEditForm.deviceQuotaPerMonth}
+                  onChange={(e) =>
+                    setMerchantEditForm((f) => ({ ...f, deviceQuotaPerMonth: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Online store URL ("Buy online")</label>
+                <input
+                  className="input"
+                  type="url"
+                  placeholder="https://"
+                  value={merchantEditForm.storeUrl}
+                  onChange={(e) => setMerchantEditForm((f) => ({ ...f, storeUrl: e.target.value }))}
                 />
               </div>
             </div>

@@ -362,6 +362,9 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           logoKey: schema.merchants.logoKey,
           logoOverlayEnabled: schema.merchants.logoOverlayEnabled,
           loadingVideoKey: schema.merchants.loadingVideoKey,
+          staffLimitPerBranch: schema.merchants.staffLimitPerBranch,
+          deviceQuotaPerMonth: schema.merchants.deviceQuotaPerMonth,
+          storeUrl: schema.merchants.storeUrl,
         })
         .from(schema.merchants)
         .where(eq(schema.merchants.userId, id));

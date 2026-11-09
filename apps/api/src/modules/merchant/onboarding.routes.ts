@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { assignMerchantToActiveDemoSets } from './demo-catalog-read.js';
+import { assertUserIsNotStaff } from './staff-guard.js';
 import { resolveMerchantStatus } from './status.js';
 
 function fallbackContactName(displayName: string | null, email: string | null): string {
@@ -53,6 +54,8 @@ export async function merchantOnboardingRoutes(app: FastifyInstance) {
         if (existing) {
           throw new AppError('CONFLICT', 409, 'This account is already registered as a merchant');
         }
+
+        await assertUserIsNotStaff(tx, req.userId);
 
         const [user] = await tx
           .select({

@@ -5,6 +5,7 @@ import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import type { DbOrTx } from '../auth/campaign.js';
 import { generateApiKey } from '../dev/keys.js';
+import { assertUserIsNotStaff } from './staff-guard.js';
 
 /** Shared with wordpress-connect.routes.ts's /v1/wordpress/connect/exchange
  * and google.routes.ts's WordPress-skip-path in /v1/auth/google/callback —
@@ -172,6 +173,8 @@ export async function ensureMerchantForUser(
     if (!existing.isActive) throw new AppError('FORBIDDEN', 403, 'merchant account inactive');
     return { merchantId: existing.id, created: false };
   }
+
+  await assertUserIsNotStaff(tx, userId);
 
   const [user] = await tx
     .select({ displayName: schema.users.displayName, email: schema.users.email })

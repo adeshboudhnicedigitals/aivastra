@@ -1,6 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import { eq } from 'drizzle-orm';
+import { signAccess } from '../../src/modules/auth/service.js';
 import { generateApiKey } from '../../src/modules/dev/keys.js';
 import type { TestApp } from './api.js';
 
@@ -267,4 +269,248 @@ export async function createTestDevSareeMannequinConfig(
     });
 
   return { workflowTemplateId: wf.id };
+}
+
+export async function createTestBranch(
+  app: TestApp,
+  merchantId: string,
+  opts: { name?: string; isActive?: boolean } = {},
+) {
+  const [branch] = await app.db
+    .insert(schema.merchantBranches)
+    .values({
+      merchantId,
+      name: opts.name ?? `Branch ${randomUUID().slice(0, 6)}`,
+      isActive: opts.isActive ?? true,
+    })
+    .returning();
+  if (!branch) throw new Error('failed to create test branch');
+  return branch;
+}
+
+export async function memberAuthHeader(app: TestApp, userId: string) {
+  const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+  const token = await signAccess(secret, userId, { kind: 'access' }, '15m');
+  return { authorization: `Bearer ${token}` };
+}
+
+export async function createTestStaff(
+  app: TestApp,
+  merchantId: string,
+  branchId: string,
+  opts: { isActive?: boolean } = {},
+) {
+  const [user] = await app.db
+    .insert(schema.users)
+    .values({
+      email: `staff-${randomUUID()}@test.com`,
+      displayName: 'Test Staff',
+      emailVerified: true,
+    })
+    .returning();
+  if (!user) throw new Error('failed to create staff user');
+  await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+  const [staff] = await app.db
+    .insert(schema.merchantStaff)
+    .values({ merchantId, branchId, userId: user.id, isActive: opts.isActive ?? true })
+    .returning();
+  if (!staff) throw new Error('failed to create staff row');
+  return { staffId: staff.id, userId: user.id, auth: await memberAuthHeader(app, user.id) };
+}
+
+export async function createTestDevice(
+  app: TestApp,
+  merchantId: string,
+  branchId: string,
+  opts: { isActive?: boolean; name?: string } = {},
+) {
+  const token = `dvc_${randomBytes(32).toString('base64url')}`;
+  const [device] = await app.db
+    .insert(schema.merchantDevices)
+    .values({
+      merchantId,
+      branchId,
+      name: opts.name ?? `Device ${randomUUID().slice(0, 6)}`,
+      deviceTokenHash: createHash('sha256').update(token).digest('hex'),
+      isActive: opts.isActive ?? true,
+    })
+    .returning();
+  if (!device) throw new Error('failed to create test device');
+  return { deviceId: device.id, token, auth: { authorization: `Device ${token}` } };
+}
+
+/** A garment type wired to an active tryon workflow, as merchant-tryon.test.ts seeds it. */
+export async function createTestGarmentType(app: TestApp) {
+  const [template] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `template-${randomUUID()}`,
+      label: 'Try-on workflow',
+      jsonContent: {},
+      poseNodeId: 'pose',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'garment',
+      workflowType: 'tryon',
+      isActive: true,
+    })
+    .returning();
+  const [category] = await app.db
+    .insert(schema.tryonCategories)
+    .values({
+      name: `category-${randomUUID()}`,
+      slug: `category-${randomUUID()}`,
+      workflowTemplateId: template!.id,
+      isActive: true,
+    })
+    .returning();
+  const [garmentType] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug: 'women',
+      slug: `shirt-${randomUUID()}`,
+      label: 'Shirt',
+      tryonCategoryId: category!.id,
+    })
+    .returning();
+  return garmentType!;
+}
+
+export async function createTestCatalogItem(
+  app: TestApp,
+  merchantId: string,
+  garmentTypeId: string,
+) {
+  const [subcategory] = await app.db
+    .insert(schema.merchantCatalogSubcategories)
+    .values({
+      merchantId,
+      category: 'women',
+      name: 'Casual Shirts',
+      garmentSubcategoryId: garmentTypeId,
+    })
+    .returning();
+  const imageKey = `merchant-catalog/${merchantId}/${randomUUID()}/image.jpg`;
+  const thumbKey = `merchant-catalog/${merchantId}/${randomUUID()}/thumb.jpg`;
+  await app.storage.putObject(imageKey, Buffer.from('img'), 'image/jpeg');
+  await app.storage.putObject(thumbKey, Buffer.from('thumb'), 'image/jpeg');
+  const [item] = await app.db
+    .insert(schema.merchantCatalogItems)
+    .values({
+      merchantId,
+      subcategoryId: subcategory!.id,
+      label: 'Red Shirt',
+      actualPricePaise: 200000,
+      offerPricePaise: 180000,
+      r2Key: imageKey,
+      thumbnailKey: thumbKey,
+    })
+    .returning();
+  return item!;
+}
+
+/** A customer photo this merchant "presigned": object in storage + the redis owner record. */
+export async function stageCustomerPhoto(app: TestApp, merchantId: string) {
+  const r2Key = keys.merchantTryonInput(merchantId, randomUUID(), 'jpg');
+  await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+  await app.redis.set(`upload:owner:${r2Key}`, merchantId, 'EX', 600);
+  return r2Key;
+}
+
+/**
+ * Two-input (body + pallu) garment type: a drape template plus the category's ordinary
+ * single-garment try-on template. Copied from merchant-tryon.test.ts's seedTwoInputGarmentType.
+ */
+export async function createTestTwoInputGarmentType(app: TestApp) {
+  const [mannequinTemplate] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `two-input-mannequin-${randomUUID()}`,
+      label: 'Two-input mannequin drape',
+      jsonContent: {},
+      poseNodeId: 'pose',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'garment',
+      workflowType: 'saree_step1_two_input',
+      tryonGarmentNodeId: '30',
+      tryonGarmentNodeId2: '27',
+      tryonOutputNodeId: '25',
+      isActive: true,
+    })
+    .returning();
+  const [tryonTemplate] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `two-input-tryon-${randomUUID()}`,
+      label: 'Tryon workflow for two-input garment type',
+      jsonContent: {},
+      poseNodeId: 'pose',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'garment',
+      workflowType: 'tryon',
+      tryonPersonNodeId: '26',
+      tryonGarmentNodeId: '30',
+      tryonOutputNodeId: '25',
+      isActive: true,
+    })
+    .returning();
+  const [tryonCategory] = await app.db
+    .insert(schema.tryonCategories)
+    .values({
+      name: `two-input-category-${randomUUID()}`,
+      slug: `two-input-category-${randomUUID()}`,
+      workflowTemplateId: tryonTemplate!.id,
+      isActive: true,
+    })
+    .returning();
+  const [garmentType] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug: 'women',
+      slug: `saree-${randomUUID()}`,
+      label: 'Saree',
+      tryonCategoryId: tryonCategory!.id,
+      mannequinTwoInputWorkflowTemplateId: mannequinTemplate!.id,
+    })
+    .returning();
+  return {
+    garmentType: garmentType!,
+    mannequinTemplate: mannequinTemplate!,
+    tryonTemplate: tryonTemplate!,
+  };
+}
+
+export async function createTestCatalogItemWithSecondImage(
+  app: TestApp,
+  merchantId: string,
+  garmentTypeId: string,
+) {
+  const [subcategory] = await app.db
+    .insert(schema.merchantCatalogSubcategories)
+    .values({ merchantId, category: 'women', name: 'Sarees', garmentSubcategoryId: garmentTypeId })
+    .returning();
+  const base = `merchant-catalog/${merchantId}/${randomUUID()}`;
+  const k = {
+    image: `${base}/image.jpg`,
+    thumb: `${base}/thumb.jpg`,
+    second: `${base}/second.jpg`,
+    secondThumb: `${base}/second-thumb.jpg`,
+  };
+  for (const key of Object.values(k)) {
+    await app.storage.putObject(key, Buffer.from('img'), 'image/jpeg');
+  }
+  const [item] = await app.db
+    .insert(schema.merchantCatalogItems)
+    .values({
+      merchantId,
+      subcategoryId: subcategory!.id,
+      label: 'Two-Input Saree',
+      actualPricePaise: 200000,
+      offerPricePaise: 180000,
+      r2Key: k.image,
+      thumbnailKey: k.thumb,
+      secondR2Key: k.second,
+      secondThumbnailKey: k.secondThumb,
+    })
+    .returning();
+  return item!;
 }

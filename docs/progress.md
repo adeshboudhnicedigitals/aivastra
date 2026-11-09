@@ -1,3 +1,340 @@
+# 2026-11-07 — v1.0 step 3c: Merchant Web dashboards (committed locally, not pushed)
+
+- **Done:**
+  - Commits since the plan commit `ebbbde9b` (`git log --oneline ebbbde9b..HEAD`):
+    `22da7c59` feat(db): partial indexes on jobs attribution columns;
+    `35c4ea6f` feat(merchant): analytics summary endpoint;
+    `49b54b1f` feat(merchant): analytics timeseries and breakdown endpoints;
+    `3411ea7b` feat(merchant): brand settings endpoints;
+    `08ae4252` feat(merchant-web): overview dashboard;
+    `e7da8ac2` feat(merchant-web): performance and settings pages;
+    `5d16213a` fix(merchant-web): performance drill-down history and tab filters.
+  - Verified at API/BFF level with curl and Python against a locally started API (port 4000) and
+    `pnpm --filter @aivastra/merchant-web dev` (port 3010), local `tryon_dev` only (host 127.0.0.1); both processes
+    stopped afterwards and no listener remains on 4000/3010. No browser was driven. Seed data: two new devices
+    (`MW3c Device A` in `MW Verify Branch`, `MW3c Device B` in `MW Verify Branch 2`) created and paired through
+    `POST /v1/merchant/org/devices` and `POST /v1/device/pair`; 7 sessions, wishlist and sold items created through the device
+    routes (assisted sessions with `x-staff-authorization` for staff1 and staff2); one sale voided through the admin void
+    route. Then written DIRECTLY by SQL because they need the GPU pipeline or specific timestamps: session/item
+    timestamps (moved to chosen IST instants, including visits starting 23:58 and 00:02 IST), 6 `jobs` rows with their
+    `session_items(action='tried')` rows, one legacy `jobs` row with no session, one `credit_ledger` row
+    `JOB_FAIL_REFUND` for a failed job, and a branch + device + one session for the other merchant `MW3B Other Co`.
+    Window 2026-11-03..2026-11-07 (Asia/Kolkata). All PASS (26 of 26 after one test-harness slip, see below):
+    - summary equals an independent plain-SQL aggregate: sessions 6, tried 5, sold 3 (voided sale excluded), wishlisted 6,
+      credits spent 9, legacy 1 job / 5 credits; conversion 0.5;
+    - credits are net of the refunded job: in-store 9 + legacy 5 = 14 = NET of all jobs in SQL; gross with the refunded
+      job would be 16;
+    - timeseries: 5 points (one per local day), 11-03 and 11-04 zero-filled, 11-05 = 2 sessions, 11-06 = 2, 11-07 = 2;
+      the 23:58 IST visit counts on 11-05 even though its items were created after midnight, the 00:02 IST visit on
+      11-06; equals the SQL per-day counts, totals equal the summary;
+    - breakdown by branch (4 / 2 sessions), device (4 / 2) and staff (staff1 2, staff2 1, kiosk sessions unattributed)
+      equal SQL aggregates for sessions, tried, sold, wishlisted and credits;
+    - staff1 summary is limited to the own branch (4 sessions, 4 tried, 3 sold, 4 wishlisted, 6 credits), has `mine`
+      (2/2/2), `creditsBalance: null`, `unattributed: null`; other branch id 403; other staff id 403; own ids 200;
+      staff breakdowns by branch/staff/device return only the own branch / own row / own branch's devices;
+    - validation: 367-day range, from after to, `tz=Mars/Phobos`, bad uuid all 400; a 365-day range 200;
+    - cross-merchant: an admin passing the other merchant's branch id or device id gets 200 with zeros, although that
+      merchant has a session, and an empty breakdown;
+    - brand: GET as admin and staff 200 with no `logoKey`; admin PATCH `https://example.com/buy` 200; audit row
+      `merchant.brand_update` with `resource_id` = the merchant id (2 rows after the run); `javascript:alert(1)` 400;
+      `null` clears (200); staff PATCH 403;
+    - pages `/`, `/performance`, `/settings`: 307 to `/login` without a session cookie, 200 with an admin and with a staff
+      `mw_refresh` cookie;
+    - index sanity: the four attribution indexes (`jobs_branch_idx`, `jobs_device_idx`, `jobs_session_idx`,
+      `jobs_staff_idx`) exist locally; the summary jobs aggregate ran in 0.07 ms on a 22-row table with a sequential scan
+      (the planner prefers that for a table this small); with `enable_seqscan=off` the same predicate uses
+      `jobs_merchant_created_idx` (index only scan). Not a scale test; Task 2 measured 8-47 ms at 50k sessions per merchant.
+  - One slip in my own verification script, not a product defect: the first run of the cross-merchant check sent an empty
+    branch id because `MW3B Other Co` had no branch (400); after inserting a branch the check passed.
+  - Decisions: credits spent is NET of refunds (a job with any `JOB_REFUND_REASONS` ledger row is excluded; partial
+    refunds are treated as full; Shopify ledger refunds are not modelled); wishlisted counts are attributed to the
+    session's staff when the item carries none; staff do not see the credit balance (`creditsBalance: null`,
+    `lowCredit: false`); deactivated branches, staff and devices are listed only when they have activity in the window;
+    timezone is fixed to Asia/Kolkata; a window counts a visit by its session start; a foreign id gives an admin zeros
+    and a staff 403.
+  - Not added on purpose: the plan's two optional extra indexes (`instore_sessions (merchant_id, branch_id, started_at)` and
+    `session_items (session_id, action)`). EXPLAIN on a throwaway dataset (500k sessions / 1.5M session_items / 510k jobs,
+    target merchant ~50k sessions) used the existing indexes at 8-47 ms (full-year admin items query 132 ms with a hash join).
+  - `wishlisted` is returned by the summary and breakdown APIs but is not rendered in any screen yet (no KPI card, no
+    BreakdownTable column): a deliberate omission to revisit.
+- **Failed / Not done:**
+  - NOT RUN — needs a person in a browser: KPI cards, range picker including a custom range, trend chart, branch / staff /
+    device drill-down including the Back button and a reload, phone width including the 7-item admin bottom nav at
+    360px, empty state, settings save and clear.
+  - Follow-ups not built: CSV export, per-merchant timezone, unique shoppers (step 5), rollups when volume requires.
+  - Follow-ups (final review): the Breakdown "Credits" column header does not say "(net of refunds)" although the Overview
+    card does; `bucket=day` is accepted but not validated (the non-strict object strips it; day is the only behaviour).
+  - Known limitations: conversion under `by=staff` can exceed 100% (sold by a colleague's item vs session owner); preset
+    ranges do not roll over midnight until re-clicked; the empty state says "pair a tablet" for any zero-session range;
+    staff briefly see a balance-card skeleton while loading.
+  - Deferred minors from the task reviews (the SDD ledger is git-ignored and will be deleted):
+    - plain `CREATE INDEX` on `jobs` takes a SHARE lock (see Open questions);
+    - unattributed (legacy) line is 0 under any filter by definition; a deleted session leaves a job with branch/device/staff ids
+      and a null session;
+    - a missing `user_credits` row reads as balance 0 and `lowCredit: true`;
+    - staff 403 tests do not assert an empty body; no deactivated-branch test;
+    - `AnalyticsWindow` name clash between the types package and `params.ts`;
+    - breakdown zero-row padding is noisy under cross-kind filters (`by=branch&deviceId`, `by=device&staffId`);
+    - a staff name can read "null" if the user has neither display name nor email;
+    - `expectNoMetrics` regex `/:\s*\d/` is brittle;
+    - the logo presign is duplicated from `auth/routes.ts`; the fail-closed brand test asserts only >=500; extra brand body
+      keys are stripped;
+    - chart mid tick rounding with a tiny max; help text hidden when the trend errors; branch table recomputes conversion
+      client-side;
+    - URL `branchId`/`staffId` are not UUID-validated (400 shows the error state with retry); a hand-typed
+      `?tab=branches&branchId=x` shows the chip over an unfiltered table; tabs lack roving tabindex and arrow keys;
+      Clear in settings only empties the input (save is required); the client accepts `http:x.com` which the server rejects;
+      the chip aria-label differs from the visible text;
+    - the Task 3 commit trailer says "Claude Opus 5.5" (cosmetic, unpushed; amend at squash).
+  - Two unit files (`shopify-activation-count`, `dev-saree-mannequin-create`) failed once under full-suite load and passed
+    alone; not investigated.
+  - Nothing deployed or pushed. `pnpm-lock.yaml` still carries a pre-existing uncommitted diff, not committed here.
+  - Local data left behind (not deleted): devices `MW3c Device A`/`B`, 7 sessions with items, 6 jobs + 1 legacy job
+    (`11111111-3c3c-4c3c-8c3c-000000000001`), 1 refund ledger row, and `MW3c Other Branch`/`Device`/one session under
+    `MW3B Other Co` (ids `22222222-3c3c-4c3c-8c3c-00000000000{1,2,3}`). Passwords of the three `mw-verify-*` accounts were
+    reset locally again to a throwaway value.
+- **Open questions / out-of-repo state:**
+  - PRODUCTION `jobs` INDEX DECISION (human): migration `0259` uses plain `CREATE INDEX IF NOT EXISTS`, which blocks writes
+    on `jobs` while it builds. Before deploy run, read-only on production,
+    `SELECT reltuples::bigint FROM pg_class WHERE relname='jobs'`. If under ~5 million rows, accept the brief lock in a
+    quiet window. Otherwise first create `jobs_branch_idx`, `jobs_device_idx`, `jobs_session_idx`, `jobs_staff_idx`
+    out-of-band with `CREATE INDEX CONCURRENTLY IF NOT EXISTS ... WHERE <col> IS NOT NULL` (same partial predicate as the
+    migration) and let `0259` no-op. This is a production write: do it deliberately, not in an ad-hoc session.
+    Trap: if a `CONCURRENTLY` build fails or is cancelled, Postgres leaves an INVALID index under the same name, and
+    `0259`'s `IF NOT EXISTS` would silently skip it, leaving an unusable index. Before `db:migrate:prod` verify
+    `SELECT indexrelid::regclass, indisvalid FROM pg_index WHERE indexrelid::regclass::text IN ('jobs_branch_idx','jobs_device_idx','jobs_session_idx','jobs_staff_idx');`
+    shows `indisvalid = true` for all four; drop and rebuild any invalid one first (a production write: do it
+    deliberately; per CLAUDE.md Production safety it is a human operator action).
+  - Migration numbering: `0259` is applied to the local DB only; `origin/dev` newest was `0254` when last checked. If
+    `origin/dev` takes `0259` first, renumber per `docs/version-control.md` and run
+    `scripts/ci/check-migration-index.mts`.
+  - `CORS_ORIGIN` must include the Merchant Web origin in every environment (see the 3a entry); browser data calls stay
+    blocked locally until `http://localhost:3010` is listed.
+
+# 2026-11-07 — v1.0 step 3b: Merchant Web catalogue (committed locally, not pushed)
+
+- **Done:**
+  - Commits since the plan commit `552b9738` (`git log --oneline 552b9738..HEAD`):
+    `aca3f838` feat(merchant): requireMerchantTeam gate for owner and staff;
+    `f78e220a` feat(db): soft-delete columns on merchant_catalog_items;
+    `ce039ec9` feat(merchant): staff access, soft delete and audit for catalogue routes;
+    `97c36928` fix(merchant): protect catalogue assets from staff overwrite, narrow staff routes;
+    `67351549` feat(merchant-web): api client, job stream and shared UI for catalogue;
+    `fd843dab` feat(merchant-web): garment icons for catalogue (adds react-icons);
+    `59e5a561` chore: add react-icons to merchant-web lockfile;
+    `31aff360` feat(merchant-web): catalogue manager (port of /tryon);
+    `9759cff6` feat(merchant-web): catalogue nav link.
+  - Verified at API/BFF level with curl/Python against a local `pnpm --filter @aivastra/merchant-web dev` (port 3010)
+    and a locally started API (port 4000), local `tryon_dev` only (host 127.0.0.1), with the 3a `mw-verify-*` accounts
+    (admin and staff1 passwords reset locally via the API's `hashPassword`) plus a throwaway second merchant
+    `MW3B Other Co` (owner `mw3b-other-owner@example.test`, with one subcategory and one item inserted by SQL). All PASS:
+    admin and staff both list and create subcategories (201), presign + PUT upload (image, thumbnail) + create item (201),
+    and the list shows the item; staff PATCH 200 and `updated_by_staff_id` set (owner PATCH leaves it null); staff DELETE
+    204, item gone from staff and owner lists, row kept with `deleted_at` and `deleted_by_staff_id`, both storage objects
+    still downloadable; `audit_logs` carries `merchant_catalog.create/update/soft_delete` with actor role
+    `MERCHANT_STAFF`; owner DELETE 204, row gone, storage object gone (404), zero audit rows for the owner item; staff
+    DELETE subcategory 403, owner DELETE of an empty subcategory 204; staff 403 and owner 200 on `/v1/merchant/catalogues`,
+    `/catalog/saree-subcategories`, `/catalog/saree-styles`, `/catalog/generate/status`; another merchant's item gives
+    404 on PATCH and DELETE for staff and owner and is left untouched; staff presign with an assetId already used by a
+    live or soft-deleted item 409 (image, thumbnail, flat), a fresh assetId 200, owner with the same assetId still 200
+    (legacy behaviour); owner list/create/patch JSON contains no `deletedAt`, `deletedByStaffId`, `updatedByStaffId`;
+    `/catalogue` without a session cookie redirects 307 to `/login`, with an admin or staff session it returns 200.
+  - Also run: merchant-web `test` (15 files, 60 tests), `typecheck`, `build` (route `/catalogue` present) and
+    `pnpm biome check apps/merchant-web --diagnostic-level=error` all clean; `lint` reports 28 warnings and 2 infos
+    (a11y label warnings in the ported manager files), no errors.
+  - Decisions: subcategory DELETE is owner-only (it cascades to items, so staff get 403, a deviation from the spec text);
+    staff also cannot call four owner-only routes (`saree-subcategories`, `saree-styles`, `/v1/merchant/catalogues`,
+    `generate/status`); staff item delete is a soft delete (row and storage objects retained, `deleted_at`/`deleted_by_staff_id`
+    set) but there is currently NO sanctioned restore path: no UI, no admin endpoint, `audit-revert` has no handler
+    for `merchant_catalog.soft_delete`, and the admin moderation list hides soft-deleted rows. A restore must be
+    built as a follow-up (options: a SUPER_ADMIN restore endpoint that clears the columns and writes an audit row,
+    or an audit-revert handler); it needs a product decision. Until then do not promise restore to merchants and do
+    not restore via ad-hoc production SQL (CLAUDE.md Production safety); a soft-deleted imported or generated item keeps blocking re-import
+    of its source job with 409); the reconcile-held route creates products unaudited; bulk generate audits one row per
+    job; staff generate progress polls every 3s; owner item JSON omits `deletedAt`, `deletedByStaffId` and
+    `updatedByStaffId`.
+- **Failed / Not done:**
+  - NOT RUN — needs a person in a browser: add a product; bulk upload; generate as staff and as owner (the API
+    `generate`/`generate-bulk` routes were also not called: they need ComfyUI and credits); delete as staff and see it
+    vanish; owner hard delete; subcategory delete button hidden for staff; layout at 375px; the bottom nav with five
+    items (Overview, Catalogue, Branches, Staff, Devices) at phone width.
+  - Follow-ups not built: restore UI for staff soft-deleted items; audit of owner writes; owner soft delete.
+  - Minor follow-ups from the final review:
+    - staff PATCH `before` snapshot is read outside the transaction
+    - no test that a failed audit write rolls the mutation back
+    - admin audit UI shows a Revert button for `merchant_catalog.update` / `merchant_catalog_subcategory.update`
+      that fails with 400
+    - staff `deleteProduct` cleanup leaves hidden rows and objects
+    - `keysInUse` scans the whole table on staff create
+    - staff can fetch the owner's other completed job results by id through GET generate/:jobId (UUID-guarded)
+    - no per-staff spend cap (3c)
+    - generate/generate-bulk and the browser checklist were never run end to end
+  - Nothing deployed or pushed. `pnpm-lock.yaml` still carries a pre-existing uncommitted diff, not committed here.
+- **Open questions / out-of-repo state:**
+  - COPY PAIR: until `/tryon` is retired, a bug fix to any of the six manager files under
+    `apps/catalogues-web/src/app/(app)/tryon` must be mirrored in `apps/merchant-web/src/app/(app)/catalogue`, and
+    vice versa.
+  - `CORS_ORIGIN` must include the Merchant Web origins in every environment (see the 3a entry); browser data calls
+    stay blocked locally until `http://localhost:3010` is listed.
+  - Migration `0258` (additive nullable soft-delete / attribution columns) is applied to the local DB only. It ships
+    via push -> CI/CD -> `db:migrate:prod`; if `origin/dev` takes 0258 first, renumber per `docs/version-control.md`
+    and run `scripts/ci/check-migration-index.mts`.
+  - Local-environment surprise: the dev API (:4000) and web stack were not running when verification started, so a
+    throwaway API process was started for the run and stopped afterwards.
+
+# 2026-11-06 — v1.0 step 3a: Merchant Web foundation (committed locally, not pushed)
+
+- **Done:**
+  - Commits since `6f79c158` (`git log --oneline 6f79c158..HEAD`):
+    `27683521` feat(merchant): org/me limits and admin staff password reset;
+    `7fc5f754` feat(merchant-web): scaffold app;
+    `50ccf3aa` feat(merchant-web): login, BFF auth and session;
+    `77abadf5` fix(merchant-web): 403 recheck before sign-out, drop unprefixed cookie clear;
+    `8396bad5` feat(merchant-web): shell and overview;
+    `a5e3f234` feat(merchant-web): branches screen;
+    `1b76d416` feat(merchant-web): staff screen;
+    `9490ecf6` fix(merchant-web): restore focus after password reset modal closes;
+    `c178b6ed` feat(merchant-web): devices screen;
+    `a060212f` fix(merchant-web): restore focus when ConfirmDialog closes;
+    `db767340` chore(merchant-web): docker, compose and CI wiring.
+  - Verified at API/BFF level with curl against a local `pnpm --filter @aivastra/merchant-web dev` (port 3010) and the
+    dev API (4000), local `tryon_dev` only, using throwaway `mw-verify-*@example.test` accounts (all PASS):
+    admin login 200 with `accessToken` and `me.role=admin`, `mw_refresh` cookie HttpOnly + SameSite=lax; staff login
+    gives `role=staff` and a `branchId`; a shopper with no merchant row gets 403 `This account has no merchant access.`
+    and no cookie; bad password 401 and no cookie; `/api/auth/refresh` returns a new `accessToken` and rotates the cookie,
+    and 401 with no cookie; middleware redirects `/branches` to `/login` (307), `/login` is 200 with a CSP carrying a
+    nonce, `/api/auth/*` is not redirected; `GET /v1/merchant/org/me` returns `companyName`, `staffLimitPerBranch` (2),
+    `deviceQuotaPerMonth`; branch create 201; staff create 201 x2 then 409 `STAFF_LIMIT_REACHED`; staff sees only its own
+    branch (admin 2, staff 1) and gets 403 on branch create; admin password reset 200, new password logs in, old one gets
+    401, the staff's earlier refresh cookie gets 401, a staff token on the reset route gets 403; device create 201 with a
+    pairing code, `POST /v1/device/pair` 200 with a device token, `GET /v1/device/me` 200, code reuse 400, PATCH
+    `isActive:false` 200 and the next device request 401 `DEVICE_INACTIVE`.
+  - Decisions: admin-driven staff password reset via `POST /v1/merchant/org/staff/:id/password` (it also revokes the
+    staff member's refresh tokens); domain `merchant.aivastra.com`; data calls go browser -> API directly (only login,
+    refresh and logout are server-side BFF); initial staff password is set at creation, resettable but never viewable.
+- **Failed / Not done:**
+  - NOT RUN — needs a person in a browser: visual layout at 375px; confirm dialogs; modal focus trap and Escape;
+    focus restore after the two focus fixes (including the StrictMode focus quirk); the pairing-code copy button and
+    expiry countdown; silent token refresh on reload / expiry in a real browser; that staff cannot reach `/branches` or
+    `/staff` in the UI (only the API-level 403 was checked).
+  - Nothing deployed. `pnpm-lock.yaml` carries a pre-existing uncommitted local diff that was NOT committed. The
+    merchant-web importer entry must be committed in the lockfile before any `--frozen-lockfile` CI run.
+- **Open questions / out-of-repo state:**
+  - CORS finding (real, blocks use): apps/merchant-web calls the Fastify API directly from the browser, so `CORS_ORIGIN`
+    in each environment's `.env` must include the Merchant Web origin (dev `http://localhost:3010`; prod and staging
+    merchant domains). Observed locally: a preflight with `Origin: http://localhost:3010` to `/v1/merchant/org/me`
+    returns 404 with no `Access-Control-*` headers, while `http://localhost:3000` returns 204 and is allowed. The dev
+    `.env` sets no `CORS_ORIGIN`, so the default `http://localhost:3000` applies. Production and staging `.env` list only
+    the app and admin hosts. Without the change, login works (server-side) but every data call is CORS-blocked in the
+    browser. Alternative: a BFF catch-all proxy for data calls.
+  - CloudPanel vhost for `merchant.aivastra.com` (and a staging equivalent), DNS and Cloudflare rules: not created.
+  - `NEXT_PUBLIC_API_URL` must be set in `.env.production` and `.env.staging` (build time, so rebuild and confirm the
+    asset hash changes). Ports 3010 (prod) and 3110 (staging) must be free on the VPS.
+  - Refresh-token reuse: presenting an already-rotated cookie right after rotation still returned 200 (the existing
+    race-tolerance in `/v1/auth/refresh` when a live successor exists); not changed here.
+
+# 2026-11-06 — v1.0 step 2: devices, in-store sessions, entitlement (uncommitted, staged)
+
+- **Done:**
+  - Schema + migration `0256_dark_shen` (`merchant_devices`, `instore_sessions`, `session_items`, plus four nullable
+    `ON DELETE SET NULL` attribution columns on `jobs`). Applied to the LOCAL dev DB only.
+  - `app.requireDevice` (`plugins/portal-auth.ts`) and `device/` module: token/pairing-code secrets, audit helper.
+  - Pairing: `POST /v1/device/pair` (atomic claim, one generic 400 for every failure, per-IP rate limit) and device `me`.
+  - Merchant device management (`merchant/org-devices.routes.ts`) and admin device management
+    (`admin/merchant-devices.routes.ts`), audited; cross-merchant access refused.
+  - Sessions, items and sale void: device routes for start (idempotent), end, add item, undo; merchant void route.
+    Staff may undo within 24 h, admin any time; undo sets `voided_at`, never a delete.
+  - Idle sweeper (`device/session-sweeper.ts`), started in `main.ts` after `startUploadSweeper`.
+  - Entitlement: `chargeInStoreTryon` + `isDeviceCovered` seam (`device/entitlement.ts`); 402 when not covered, a throwing
+    coverage check means not covered.
+  - Attributed job creation via `JobAttribution` / `attributionColumns` / `chargeJob` in `create-tryon-job.ts`; device
+    routes for photo presign and `POST`/`GET` try-on jobs (GET scoped by `device_id`, POST under `withIdempotency`).
+  - Extracted `createGarmentTryonJob` + `assertOwnedCustomerPhoto` to `merchant/tryon-job-service.ts`; the legacy
+    `tryon.routes.ts` handler now delegates to it (same order and errors).
+  - HLD §4.1 updated: `merchant_devices` token hash unique/nullable until paired; `instore_sessions` loses
+    `shopper_id`/`consent_by_staff` and gains `last_activity_at`; `session_items.catalog_item_id` has no FK;
+    `shoppers`/`shopper_page_events` marked unchanged by step 2.
+- **Review fixes (final whole-branch review, 1 wave, re-review Approved):**
+  - Job attribution uses the session's branch; moving or deactivating a device ends its open sessions in the same
+    transaction, and a move to an inactive branch is refused (400).
+  - `chargeInStoreTryon` treats only `=== true` as covered and catches a synchronous throw (both mean credits are charged).
+  - Wishlist/sold items must reference the merchant's own catalog item or an allowed demo item (404 otherwise), via
+    `merchantCanReferenceCatalogItem` in `resolve-tryon-garment.ts` (`resolveTryonGarment` unchanged).
+  - Migration `0257_military_iron_lad` (indexes only): partial unique on `merchant_devices.pairing_code_hash`
+    and a partial index on `instore_sessions.last_activity_at WHERE ended_at IS NULL`. Local DB only.
+  - Non-uuid path params return 400; `x-staff-authorization` added to the logger redact list; saree two-step device
+    try-on test added; audit and status assertions tightened.
+- **Deviations from the plan:** `memberFromUserId(userId)` takes no `req`; `DeviceRow` type reordered in the merchant device
+  routes; the admin device routes import their body schema as a value. No logic changes.
+- **Verified:** API integration run `device- merchant-org admin-merchant-org merchant-staff-account-guards merchant-me
+  merchant-tryon merchant-quick-tryon unlimited-plan-offer` -> 18 files / 127 tests passed (the `device-` pattern also
+  matches the pre-existing `catalog-app-device-*` and `device-login-*` files). Step-2 files: device-schema 1,
+  device-auth 7, device-management 6, device-sessions 11, device-tryon 11. Guards: merchant-org 17, admin-merchant-org 8,
+  merchant-staff-account-guards 3, merchant-me 2, merchant-tryon 15, merchant-quick-tryon 3, unlimited-plan-offer 12.
+  `pnpm -r --filter "!@aivastra/admin-mobile" run typecheck` clean; `pnpm biome check . --diagnostic-level=error` no errors.
+  Legacy suites (merchant-tryon, quick-tryon, history, results) identical before and after the route extraction (24/24).
+  `pnpm --filter @aivastra/api test` unit run after Task 5: 119 files / 1206 tests.
+- **Failed / Not done:**
+  - No admin-web, Merchant Web or Android UI for any of this; nothing exercised in a browser or on a device.
+  - Quota / subscription coverage is not enforced: `isDeviceCovered` always returns false, so every device try-on is
+    charged to credits.
+  - The idle sweeper's session ends are not audited (no actor).
+  - Migrations `0256` and `0257` are not applied to staging/prod; it ships via push -> CI/CD -> `db:migrate:prod`.
+  - The legacy email-login kiosk path is untouched.
+- **Open questions:**
+  - How and when customers move off the email-login kiosk: per-customer, later.
+  - Please confirm the four spec gaps the plan closed: (1) device photo presign + job read routes were added;
+    (2) an admin sale-void route was added; (3) `session_items.catalog_item_id` has no FK; (4) the sweeper is not audited.
+  - Deferred on purpose: indexes on the four new `jobs` columns (a non-concurrent index build on the production `jobs`
+    table can block writes; plan it for step 3 with a deliberate window); sales attributed to a staff member who was
+    deactivated mid-session; no re-pair endpoint and a re-activated device regains its old token (product decision);
+    `last_seen_at` write on every device request (throttle later); store-NAT shares the 200 req/min limit, so the
+    Android client should poll job status gently; `withIdempotency` is check-then-set (pre-existing); a sale or job can
+    land just after a session ends; `/pair` does not check that branch/merchant are active (the token is rejected by
+    `requireDevice` anyway).
+  - Final verification after the fix wave: `device- merchant-org admin-merchant-org merchant-staff-account-guards
+    merchant-me merchant-tryon merchant-quick-tryon unlimited-plan-offer` -> 18 files / 138 tests passed; api unit
+    1206 passed; typecheck clean; biome 0 errors.
+
+# 2026-11-06 — v1.0 step 1: merchant org model (branches + staff), admin controls (uncommitted, staged)
+
+- **Done:**
+  - Schema + migration `0255` (`merchant_branches`, `merchant_staff`, and `merchants.staff_limit_per_branch`
+    / `device_quota_per_month` / `store_url`). Applied to the LOCAL dev DB only.
+  - `app.requireMerchantMember` / `app.requireMerchantAdmin` (`plugins/portal-auth.ts`).
+  - `/v1/merchant/org/*` (me, branches, staff); the per-branch staff limit is enforced in the same
+    transaction as the staff insert.
+  - `/admin/merchants/:id/org` plus branch/staff PATCH routes, and the three new fields on
+    `PATCH /admin/merchants/:id`; admin-web edit-drawer fields + `MerchantOrgPanel`.
+  - **Deviation from the HLD:** the merchant owner (`merchants.user_id`) is the implicit merchant admin;
+    `merchant_staff` holds staff only and has no role column. HLD §4.1 updated to match.
+- **Review fixes (final whole-branch review, 3 waves):**
+  - `updateStaff` now checks the target branch belongs to the merchant on every branch change (a foreign
+    branch UUID returned 200 for inactive staff); staff-create duplicate-email check is case-insensitive.
+  - Google sign-in no longer auto-links onto an account that is a merchant staff member
+    (`STAFF_GOOGLE_LINK_REFUSED`, 403): a merchant admin could otherwise pre-create a verified account for an
+    unregistered email and keep its password after the real owner signed in with Google.
+  - The three merchant-creation paths (WordPress login/connect, Android onboarding, `POST /admin/merchants`)
+    refuse a user who is already staff (`USER_IS_STAFF`, 409) via `assertUserIsNotStaff`.
+  - Drawer blocks an empty/invalid staff limit (was `Number('')` = 0); panel keyed by merchant id;
+    `storeUrl` is http(s)-only and non-URL input is a 400; `deviceQuotaPerMonth` max 1,000,000.
+- **Verified:** API integration `merchant-org` (17), `admin-merchant-org` (7), `merchant-staff-account-guards` (3),
+  `merchant-me` (2) green (29/29, re-run after the last fix); `google-upsert` unit 8; typecheck/build clean.
+- **Failed / Not done:**
+  - The admin-web UI (`MerchantOrgPanel` + drawer fields) was NOT exercised in a browser.
+  - Migration `0255` is not applied to staging/prod; it ships via push -> CI/CD -> `db:migrate:prod`.
+  - Minors deferred: no DB CHECK constraints on the new columns (zod only); no confirm on branch
+    deactivate; `hashPassword` runs before the capacity check; no unique (merchant_id, name) on branches;
+    `lower(users.email)` lookup is unindexed; the browser Google callback shows raw JSON for the staff
+    refusal (same as the existing BANNED case); Android display of the new 403 untraced.
+- **Open questions:**
+  - Decided (option A): ADMIN and SUPER_ADMIN edit branches/staff (`requireAdmin`, same as agreed price);
+    staff limit / device quota / store URL stay `merchants.write` (SUPER_ADMIN). Panel and the merchant
+    Edit button hide for roles that cannot use them. Product intent that ADMIN alters *any* merchant
+    setting still needs a permissions migration if wanted later.
+  - Merchant Web (`apps/merchant-web`, build step 3) will consume `/v1/merchant/org/*`; nothing in
+    v1.0 steps 2-7 is started.
+
 # 2026-11-05 — Merchant quick try-on: one camera photo, admin-chosen workflow (uncommitted)
 
 - **What:** new `workflow_templates.workflow_type = 'quick_tryon'` (single LoadImage in → Save Image out,

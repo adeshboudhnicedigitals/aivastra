@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { schema } from '@aivastra/db';
+import { type DbTransaction, schema } from '@aivastra/db';
 import { computeOutputDims, JOB_SOURCE, type Resolution } from '@aivastra/types';
 import { aliasedTable, and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -13,6 +13,25 @@ import { atomicDeduct } from '../credits/ledger.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 const CONFIG_KEY = 'config:system';
+
+/**
+ * A catalogue job a merchant STAFF member started from Merchant Web. Absent for every
+ * legacy (owner / Android) caller, whose jobs stay exactly as before. The wallet is still
+ * the merchant owner's (`userId`); this only stamps who spent it (`jobs.branch_id/staff_id`)
+ * and lets the caller write its audit row inside the job's own transaction, so a failed
+ * audit insert rolls back the job and its credit deduct (fail-closed, like every audit).
+ * Not create-tryon-job.ts's JobAttribution: that one is a device try-on (device + session +
+ * catalog item, entitlement charging), none of which applies to catalogue generation.
+ */
+export interface CatalogJobStaff {
+  branchId: string;
+  staffId: string;
+  audit: (tx: DbTransaction, jobId: string) => Promise<void>;
+}
+
+function staffColumns(staff?: CatalogJobStaff) {
+  return staff ? { branchId: staff.branchId, staffId: staff.staffId } : {};
+}
 
 interface MerchantCatalogDefaults {
   merchantCatalogDefaults?: Partial<
@@ -55,6 +74,7 @@ export async function createMerchantCatalogJob(
     // other merchant catalog job uses — see docs/superpowers/plans/
     // 2026-08-20-merchant-catalog-saree-two-input.md.
     secondFlatImageKey?: string;
+    staff?: CatalogJobStaff;
   },
 ): Promise<{ jobId: string }> {
   const mannequinTwoInputWf = aliasedTable(schema.workflowTemplates, 'mannequin_two_input_wf');
@@ -301,6 +321,8 @@ export async function createMerchantCatalogJob(
         queueStream: params.hold ? 'low' : 'normal',
         creditsCharged: cost,
         source: JOB_SOURCE.MERCHANT_CATALOG,
+        // Only the charged step-2 job is attributed, as in createMerchantTryonJobTwoStep.
+        ...staffColumns(params.staff),
       });
       await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
       await tx.insert(schema.jobInputs).values({
@@ -324,6 +346,7 @@ export async function createMerchantCatalogJob(
           ...(params.hold ? { heldBatch: true } : {}),
         },
       });
+      if (params.staff) await params.staff.audit(tx, jobId);
     });
 
     await app.redis.xadd(
@@ -355,6 +378,7 @@ export async function createMerchantCatalogJob(
       queueStream: params.hold ? 'low' : 'normal',
       creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_CATALOG,
+      ...staffColumns(params.staff),
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({
@@ -385,6 +409,7 @@ export async function createMerchantCatalogJob(
         ...(params.hold ? { heldBatch: true } : {}),
       },
     });
+    if (params.staff) await params.staff.audit(tx, jobId);
   });
 
   // Held jobs enter the stream only when an admin releases them.
@@ -425,6 +450,7 @@ export async function createMerchantSareeMannequinJob(
     merchantId: string;
     sareeStyleId?: string;
     secondFlatImageKey?: string;
+    staff?: CatalogJobStaff;
   },
 ): Promise<{ jobId: string }> {
   // No join/version lookup for the plain mannequinWorkflowTemplateId here —
@@ -531,6 +557,7 @@ export async function createMerchantSareeMannequinJob(
       queueStream: 'normal',
       creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_CATALOG_SAREE_MANNEQUIN,
+      ...staffColumns(params.staff),
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({
@@ -564,6 +591,7 @@ export async function createMerchantSareeMannequinJob(
             : {}),
       },
     });
+    if (params.staff) await params.staff.audit(tx, jobId);
   });
 
   await app.redis.xadd(

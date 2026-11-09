@@ -28,6 +28,7 @@ const ALL_SERVICES = [
   'chatbot',
   'dispatcher',
   'gpu-ops',
+  'merchant-web',
   'shopify-admin',
   'support',
   'web',
@@ -94,6 +95,7 @@ describe('shared packages', () => {
       'api',
       'chatbot',
       'dispatcher',
+      'merchant-web',
       'shopify-admin',
       'web',
     ]);
@@ -222,6 +224,7 @@ describe('test targets', () => {
     expect(run(['packages/types/src/jobs.ts']).testTargets).toEqual([
       '@aivastra/api',
       '@aivastra/dispatcher',
+      '@aivastra/merchant-web',
     ]);
   });
 
