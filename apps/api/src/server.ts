@@ -55,6 +55,7 @@ import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminPaymentsRoutes } from './modules/admin/payments.routes.js';
 import { adminProdSnapshotRoutes } from './modules/admin/prod-snapshot.routes.js';
 import { adminRefundRequestsRoutes } from './modules/admin/refund-requests.routes.js';
+import { adminRoleNavOverridesRoutes } from './modules/admin/role-nav-overrides.routes.js';
 import { adminRolePermissionsRoutes } from './modules/admin/role-permissions.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
 import { adminShopifyPurchasesRoutes } from './modules/admin/shopify-purchases.routes.js';
@@ -496,6 +497,7 @@ export async function buildServer(env: Env) {
   await app.register(adminAuthRoutes);
   await app.register(adminUsersRoutes);
   await app.register(adminRolePermissionsRoutes);
+  await app.register(adminRoleNavOverridesRoutes);
   await app.register(adminCreditsRoutes);
   await app.register(adminRefundRequestsRoutes);
   await app.register(adminCreditPlansRoutes);

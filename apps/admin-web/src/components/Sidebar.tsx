@@ -7,19 +7,17 @@ import { Icon } from './Icons';
 interface SidebarProps {
   page: string;
   onNav: (page: string) => void;
-  role: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }
 
-interface NavItem {
+export interface NavItem {
   k: string;
   label: string;
   icon: () => ReactElement;
   perm?: string | null; // null = always visible to any active admin (dashboard-style items use 'admin.me' instead)
-  roles?: string[]; // present only on the one item still gated by hard-coded roles — see `payments` below
   count?: number;
   alert?: boolean;
   // Removed from the sidebar only — the route and page stay intact so it can be re-shown by
@@ -27,12 +25,15 @@ interface NavItem {
   hidden?: boolean;
 }
 
-interface NavGroup {
+export interface NavGroup {
   label: string;
   items: NavItem[];
 }
 
-const groups: NavGroup[] = [
+// Exported so Settings > Roles & Permissions can list the exact same sections/items
+// to build its sidebar-visibility toggles from — one definition, no drift between
+// what the sidebar actually renders and what the matrix lets an admin control.
+export const navGroups: NavGroup[] = [
   {
     label: '',
     items: [
@@ -40,6 +41,9 @@ const groups: NavGroup[] = [
         k: 'dashboard',
         label: 'Dashboard',
         icon: Icon.Dashboard,
+        // Visible to any active admin — GET /admin/stats now returns only the
+        // sections a role's own permissions cover (see config.routes.ts), so the
+        // page itself degrades gracefully instead of needing to be hidden.
         perm: 'admin.me',
       },
     ],
@@ -175,10 +179,7 @@ const groups: NavGroup[] = [
         k: 'payments',
         label: 'Payments',
         icon: Icon.Credit,
-        // Not migrated to a permission key yet — payments.routes.ts still uses
-        // requireAdmin([...]) directly (see docs/superpowers/plans/2026-08-20-admin-role-permission-matrix.md,
-        // Context). Revisit once that route is migrated to requirePermission.
-        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+        perm: 'payments.read',
       },
       {
         k: 'telemetry',
@@ -240,13 +241,12 @@ const groups: NavGroup[] = [
 export function Sidebar({
   page,
   onNav,
-  role,
   collapsed,
   onToggleCollapse,
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
-  const { token, role: authRole, hasPermission, logout } = useAuth();
+  const { token, role: authRole, hasPermission, isNavVisible, logout } = useAuth();
   const [contactBadge, setContactBadge] = useState(0);
   const [pendingApprovalsBadge, setPendingApprovalsBadge] = useState(0);
   const [chatInboxBadge, setChatInboxBadge] = useState(0);
@@ -291,13 +291,20 @@ export function Sidebar({
     return () => clearInterval(t);
   }, [token, authRole]);
 
-  const isVisible = (item: NavItem) =>
-    !item.hidden && (item.perm ? hasPermission(item.perm) : (item.roles ?? []).includes(role));
+  const isVisible = (item: NavItem) => {
+    if (item.hidden) return false;
+    // An explicit override from Settings > Roles & Permissions > Sidebar always wins —
+    // it can hide an item a role has the data permission for, or show one it doesn't
+    // (see role-nav-overrides.routes.ts for why that second case is intentional).
+    const override = isNavVisible(item.k);
+    if (override !== undefined) return override;
+    return !item.perm || hasPermission(item.perm);
+  };
 
   // Flat list for collapsed view; grouped for expanded view
-  const allItems = groups.flatMap((g) => g.items);
+  const allItems = navGroups.flatMap((g) => g.items);
   const visible = allItems.filter(isVisible);
-  const visibleGroups = groups
+  const visibleGroups = navGroups
     .map((g) => ({ ...g, items: g.items.filter(isVisible) }))
     .filter((g) => g.items.length > 0);
 

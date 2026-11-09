@@ -17,6 +17,7 @@ import PurchasablePlansTab from './settings/PurchasablePlansTab';
 import RenewalPopupTab from './settings/RenewalPopupTab';
 import RolesPermissionsTab from './settings/RolesPermissionsTab';
 import ShopifyCreditsTab from './settings/ShopifyCreditsTab';
+import SidebarVisibilityTab from './settings/SidebarVisibilityTab';
 
 function uploadFile(url: string, file: Blob, contentType: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -42,6 +43,7 @@ type SettingsSection =
   | 'credit-plans'
   | 'signup-campaigns'
   | 'roles-permissions'
+  | 'sidebar-visibility'
   | 'system'
   | 'session'
   | 'prod-snapshot'
@@ -56,7 +58,13 @@ const SETTING_SECTIONS: { k: SettingsSection; label: string; perm?: string }[] =
   { k: 'notifications', label: 'Notifications' },
   { k: 'credit-plans', label: 'Credit Plans', perm: 'credit_plans.write' },
   { k: 'signup-campaigns', label: 'Signup Campaigns', perm: 'signup_campaigns.write' },
-  { k: 'roles-permissions', label: 'Roles & Permissions', perm: 'admin_users.manage' },
+  // role_config.manage is deliberately narrower than admin_users.manage (which gates
+  // admin-account approval, a separate capability) — see
+  // migration 0257_role_config_manage_permission.sql.
+  { k: 'roles-permissions', label: 'Roles & Permissions', perm: 'role_config.manage' },
+  // Same guard as Roles & Permissions above — it's the same matrix table, just one
+  // more tab controlling sidebar visibility instead of data access.
+  { k: 'sidebar-visibility', label: 'Sidebar Visibility', perm: 'role_config.manage' },
   { k: 'system', label: 'System', perm: 'config.read' },
   { k: 'session', label: 'Session' },
   // Not a real permission key — never granted to any role in role_permissions,
@@ -365,6 +373,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   );
 
   useEffect(() => {
+    // visibleSections already hides the System tab for a role without
+    // config.read — without this guard the fetch still fires on every mount
+    // regardless of which tab is selected, so a role like SUPPORT got a
+    // "Failed to load system config" toast for a tab it never saw.
+    if (!hasPermission('config.read')) {
+      setSysLoading(false);
+      return;
+    }
     apiFetch<{
       maxBatchJobs?: number;
       maxQueueDepth?: number;
@@ -438,14 +454,20 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         }),
       )
       .finally(() => setSysLoading(false));
-  }, [toast]);
+  }, [toast, hasPermission]);
 
   useEffect(() => {
+    // Same gate as above — this is the System tab's app-video sub-field,
+    // gated by the same config.read permission on the backend.
+    if (!hasPermission('config.read')) {
+      setAppVideoLoading(false);
+      return;
+    }
     apiFetch<{ videoUrl: string | null }>('/admin/config/app-video')
       .then((res) => setAppVideoUrl(res.videoUrl))
       .catch(() => {})
       .finally(() => setAppVideoLoading(false));
-  }, []);
+  }, [hasPermission]);
 
   const handleAppVideoUpload = async (file: File) => {
     setAppVideoUploading(true);
@@ -544,6 +566,13 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   };
 
   useEffect(() => {
+    // Same gate as the system-config effect above — visibleSections already
+    // hides this tab for a role without signup_campaigns.write, but the fetch
+    // itself had no matching guard and fired on every mount regardless.
+    if (!hasPermission('signup_campaigns.write')) {
+      setCampaignsLoading(false);
+      return;
+    }
     apiFetch<SignupCampaign[]>('/admin/signup-campaigns')
       .then(setCampaigns)
       .catch((e) =>
@@ -554,7 +583,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         }),
       )
       .finally(() => setCampaignsLoading(false));
-  }, [toast]);
+  }, [toast, hasPermission]);
 
   const handleCampaignSaved = (saved: SignupCampaign) => {
     setCampaigns((prev) => {
@@ -869,6 +898,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
       {/* Roles & Permissions */}
       {section === 'roles-permissions' && <RolesPermissionsTab toast={toast} />}
+
+      {/* Sidebar Visibility */}
+      {section === 'sidebar-visibility' && <SidebarVisibilityTab toast={toast} />}
 
       {/* Prod Snapshot */}
       {section === 'prod-snapshot' && <ProdSnapshotTab toast={toast} />}
