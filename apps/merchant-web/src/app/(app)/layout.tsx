@@ -6,14 +6,13 @@ import { JobStreamProvider } from '@/components/job-stream-provider';
 import { SessionProvider, useSession } from '@/components/session-provider';
 import { Shell } from '@/components/shell';
 import { C } from '@/components/tokens';
-import { ToastProvider } from '@/components/ui/toast';
 
 function Gate({ children }: { children: React.ReactNode }) {
-  const { status } = useSession();
+  const { status, reason } = useSession();
   const router = useRouter();
   useEffect(() => {
-    if (status === 'signed-out') router.replace('/login');
-  }, [status, router]);
+    if (status === 'signed-out') router.replace(reason ? `/login?error=${reason}` : '/login');
+  }, [status, reason, router]);
 
   if (status !== 'ready') {
     return (
@@ -38,9 +37,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
-        <ToastProvider>
-          <Gate>{children}</Gate>
-        </ToastProvider>
+        <Gate>{children}</Gate>
       </SessionProvider>
     </QueryClientProvider>
   );

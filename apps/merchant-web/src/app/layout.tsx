@@ -3,6 +3,7 @@ import { Poppins } from 'next/font/google';
 import { headers } from 'next/headers';
 import './globals.css';
 import { C } from '@/components/tokens';
+import { ToastProvider } from '@/components/ui/toast';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -38,7 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         style={{ background: C.bg, color: C.text }}
         suppressHydrationWarning
       >
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

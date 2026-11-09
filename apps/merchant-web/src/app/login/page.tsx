@@ -1,11 +1,12 @@
 'use client';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Eye, EyeOff, LockIcon, MailIcon } from '@/components/icons';
 import { LogoAuth } from '@/components/logo';
 import { C } from '@/components/tokens';
 import { Divider } from '@/components/ui/divider';
 import { GoogleBtn } from '@/components/ui/google-btn';
+import { useToast } from '@/components/ui/toast';
 import { initToken } from '@/lib/api';
 import { errorBodyMessage } from '@/lib/errors';
 
@@ -32,13 +33,21 @@ const inputStyle: React.CSSProperties = {
   paddingRight: 12,
 };
 
-// Reason codes the API's Google callback and the BFF callback put on /login?error=.
-function googleErrorMessage(code: string | null): string {
+// Reason codes on /login?error=: the Google callbacks, and the session gate in (app)/layout.
+function loginErrorMessage(code: string | null): string {
   if (!code) return '';
-  if (code === 'not_a_merchant') {
-    return 'This Google account has no merchant access. Use the email and password you were given.';
+  switch (code) {
+    case 'not_a_merchant':
+      return 'This Google account has no merchant access. Use the email and password you were given.';
+    case 'no_access':
+      return 'This account has no merchant access. Contact your admin.';
+    case 'unreachable':
+      return 'Unable to reach the server. Check your connection and try again.';
+    case 'session_expired':
+      return 'Your session has expired. Sign in again.';
+    default:
+      return "Google sign-in didn't go through. Please try again.";
   }
-  return "Google sign-in didn't go through. Please try again.";
 }
 
 function ImagePanel() {
@@ -85,17 +94,20 @@ function ImagePanel() {
 function LoginFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const queryError = googleErrorMessage(searchParams.get('error'));
+  const toast = useToast();
+  const queryError = loginErrorMessage(searchParams.get('error'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (queryError) toast.show(queryError);
+  }, [queryError, toast]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch(`${BASE}/api/auth/login`, {
         method: 'POST',
@@ -104,19 +116,17 @@ function LoginFormInner() {
       });
       const body = (await res.json().catch(() => null)) as { accessToken?: string } | null;
       if (!res.ok || !body?.accessToken) {
-        setError(errorBodyMessage(body) ?? 'Unable to sign in. Try again.');
+        toast.show(errorBodyMessage(body) ?? 'Unable to sign in. Try again.');
         return;
       }
       initToken(body.accessToken);
       router.push('/');
     } catch {
-      setError('Unable to reach the server. Check your connection and try again.');
+      toast.show('Unable to reach the server. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
   }
-
-  const shownError = error ?? (queryError || null);
 
   return (
     <div
@@ -160,21 +170,6 @@ function LoginFormInner() {
             </h1>
             <div style={{ fontSize: 14, color: C.mid }}>Sign in to AiVastra Merchant.</div>
           </div>
-
-          {shownError ? (
-            <div
-              role="alert"
-              style={{
-                padding: '10px 14px',
-                borderRadius: 8,
-                border: `1px solid ${C.danger}`,
-                fontSize: 14,
-                color: C.danger,
-              }}
-            >
-              {shownError}
-            </div>
-          ) : null}
 
           <GoogleBtn label="Continue with Google" />
           <Divider label="Or Continue With" />
