@@ -3,9 +3,8 @@ import { createDb } from '@aivastra/db';
 import type { StorageProvider } from '@aivastra/storage';
 import { createR2Provider } from '@aivastra/storage';
 import { CreateBucketCommand, DeleteBucketCommand, S3Client } from '@aws-sdk/client-s3';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
+import { TEST_TEMPLATE_DB } from '../global-setup.js';
 
 export interface TestEnv {
   db: DB;
@@ -29,16 +28,12 @@ export async function setupTestEnv(): Promise<TestEnv> {
   const adminUrl = `postgres://tryon:tryon_dev_pw@127.0.0.1:${pgPort}/tryon_dev`;
 
   const adminClient = postgres(adminUrl, { max: 1 });
-  await adminClient.unsafe(`CREATE DATABASE "${dbName}"`);
+  // Clones the pre-migrated template (test/global-setup.ts) rather than replaying
+  // the whole migration chain for every file.
+  await adminClient.unsafe(`CREATE DATABASE "${dbName}" TEMPLATE "${TEST_TEMPLATE_DB}"`);
   await adminClient.end();
 
   const pgUrl = `postgres://tryon:tryon_dev_pw@127.0.0.1:${pgPort}/${dbName}`;
-  const migClient = postgres(pgUrl, { max: 1 });
-  await migrate(drizzle(migClient), {
-    migrationsFolder: './node_modules/@aivastra/db/src/migrations',
-  });
-  await migClient.end();
-
   const { db, close: closeDb, withAdvisoryLock } = createDb(pgUrl);
 
   const r2Endpoint = 'http://127.0.0.1:9000';
