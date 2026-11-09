@@ -109,6 +109,52 @@ describe('agentTelemetrySchema', () => {
     expect(parse(payload({ bootId: 'not a uuid!' })).success).toBe(false);
     expect(parse(payload({ observedAt: 0 })).success).toBe(false);
   });
+
+  it('counts length in characters, so an emoji is one, as the agent counts it', () => {
+    // GPU name is a text(120) field: 120 emoji are 240 UTF-16 units but 120 characters.
+    expect(parse(payload({ gpus: [gpu({ name: '🔥'.repeat(120) })] })).success).toBe(true);
+    expect(parse(payload({ gpus: [gpu({ name: '🔥'.repeat(121) })] })).success).toBe(false);
+  });
+
+  describe('log lines', () => {
+    const logsOf = (lines: unknown[]) => {
+      const r = parse(payload({ logs: [{ unit: 'comfyui', lines }] }));
+      expect(r.success).toBe(true);
+      return r.success ? r.data.logs?.[0]?.lines : undefined;
+    };
+
+    it('accepts the w1 line that was rejected: 300 characters with emoji (308 UTF-16 units)', () => {
+      const line = `[ERROR] Value not in list: preset_prompt: '📝 Custom Prompt Only' not in ['🍿 Wan', '🎥 Wan', '🎬 Wan', ${'x'.repeat(300)}`;
+      const cut = [...line].slice(0, 300).join('');
+      expect(cut.length).toBeGreaterThan(300);
+      expect(logsOf([cut])).toEqual([cut]);
+    });
+
+    it('cuts a too-long line instead of rejecting the sample', () => {
+      const [line] = logsOf(['e'.repeat(1000)]) ?? [];
+      expect(line).toBe('e'.repeat(300));
+    });
+
+    it('cuts by characters and never splits an emoji', () => {
+      const [line] = logsOf(['📝'.repeat(400)]) ?? [];
+      expect([...(line ?? '')]).toHaveLength(300);
+      expect(line).toBe('📝'.repeat(300));
+    });
+
+    it('turns control characters into spaces and drops empty or non-string lines', () => {
+      expect(logsOf(['a\tb\x1b[31mc', '', '   ', 42, null, 'ok'])).toEqual(['a b [31mc', 'ok']);
+    });
+
+    it('keeps only the newest 40 lines', () => {
+      const lines = Array.from({ length: 50 }, (_, i) => `line ${i}`);
+      expect(logsOf(lines)).toEqual(lines.slice(-40));
+    });
+
+    it('still rejects a bad unit name or a non-array lines field', () => {
+      expect(parse(payload({ logs: [{ unit: '../etc', lines: ['x'] }] })).success).toBe(false);
+      expect(parse(payload({ logs: [{ unit: 'comfyui', lines: 'x' }] })).success).toBe(false);
+    });
+  });
 });
 
 describe('deriveGpuSignals', () => {
