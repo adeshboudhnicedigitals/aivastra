@@ -17,6 +17,8 @@ export interface AnalyticsCards {
   /** 0..1. Named add-to-cart, never "conversion" — it is not a sale. */
   addToCartRate: number;
   emailsCaptured: number;
+  /** Revenue from orders attributed to try-ons, one entry per currency. */
+  revenue: { currency: string; amount: number; orders: number }[];
   turnedAway: { total: number; storeCap: number; shopperCap: number; emailGate: number };
 }
 
@@ -83,6 +85,18 @@ export async function analyticsCards(
       ),
     );
 
+  const ao = schema.shopifyAttributedOrders;
+  const revenueRows = await db
+    .select({
+      currency: ao.currency,
+      amount: sql<string>`sum(${ao.revenue})`,
+      orders: int(sql`count(*)`),
+    })
+    .from(ao)
+    .where(and(eq(ao.storeId, storeId), gte(ao.orderedAt, range.from), lt(ao.orderedAt, range.to)))
+    .groupBy(ao.currency)
+    .orderBy(sql`sum(${ao.revenue}) desc`);
+
   const identified = identifiedRow.n;
   return {
     tryOns: jobRow.tryOns,
@@ -90,6 +104,11 @@ export async function analyticsCards(
     addedToCart: eventRow.addedToCart,
     addToCartRate: identified === 0 ? 0 : eventRow.addedToCart / identified,
     emailsCaptured: emailRow.n,
+    revenue: revenueRows.map((r) => ({
+      currency: r.currency,
+      amount: Number(r.amount),
+      orders: r.orders,
+    })),
     turnedAway: {
       // Deliberately excludes emailGate: a shopper who hits the email gate
       // typically submits their email and gets their try-on anyway (a soft
