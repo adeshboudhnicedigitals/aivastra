@@ -125,7 +125,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   };
   const openBulkDeleteConfirm = () =>
     setConfirmParams({ confirm: 'bulk-delete-users', confirmId: null });
-  const { role: myRole } = useAuth();
+  const { role: myRole, hasPermission } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isSuperAdmin = myRole === 'SUPER_ADMIN';
@@ -289,6 +289,11 @@ export default function UsersPage({ onNav, toast }: Props) {
   }, [load]);
 
   useEffect(() => {
+    // GET /admin/credit-plans requires credit_plans.write (there's no separate read
+    // permission — same gate Settings' Credit Plans tab uses). A role without it, like
+    // SUPPORT, still gets the rest of this page; it just sees no plan-tier options in
+    // the filter instead of a 403 toast on every page load.
+    if (!hasPermission('credit_plans.write')) return;
     apiFetch<CreditPlan[]>('/admin/credit-plans')
       .then((rows) => setTierOptions(rows.filter((plan) => plan.isActive).map((plan) => plan.slug)))
       .catch((e) =>
@@ -298,7 +303,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           body: apiErrorMessage(e, 'Please try again.'),
         }),
       );
-  }, [toast]);
+  }, [toast, hasPermission]);
 
   const handleSearch = (q: string) => {
     setQuery(q);

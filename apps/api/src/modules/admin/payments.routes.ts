@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { issueInvoiceIfNeeded } from '../payments/issue-invoice.js';
 import { recordAudit } from './audit.js';
-import { requireAdmin } from './guard.js';
+import { requirePermission } from './guard.js';
 
 const STATUSES = ['created', 'paid', 'failed'] as const;
 
@@ -19,7 +19,7 @@ const ListQuery = z.object({
 });
 
 export async function adminPaymentsRoutes(app: FastifyInstance) {
-  const ALL = requireAdmin(['SUPER_ADMIN', 'SUPPORT', 'ADMIN']);
+  const ALL = requirePermission('payments.read');
 
   app.get(
     '/admin/payments',
