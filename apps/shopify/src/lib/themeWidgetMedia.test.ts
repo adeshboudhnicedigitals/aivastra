@@ -95,6 +95,45 @@ describe('findMediaContainer', () => {
     expect(found?.el.className).toBe('product__media-wrapper');
   });
 
+  it("ignores the widget's own images, which carry the product image as their src", () => {
+    document.body.innerHTML = `
+      <div class="aivastra-tryon__modal"><div class="aivastra-tryon__modal-content" style="position:relative">
+        <img class="aivastra-tryon__avatar-image" src="/files/shirt_200x.jpg">
+      </div></div>`;
+    expect(find({ productImage: '/files/shirt_200x.jpg' })).toBeNull();
+
+    document.body.innerHTML +=
+      '<div class="product__media-wrapper"><img src="/files/shirt_900x.jpg"></div>';
+    expect(find({ productImage: '/files/shirt_200x.jpg' })?.el.className).toBe(
+      'product__media-wrapper',
+    );
+  });
+
+  it('treats a layout class containing "thumb" as a wrapper, not a thumbnail strip', () => {
+    document.body.innerHTML = `
+      <div class="product product--thumbnail_slider">
+        <div class="product__media-wrapper">
+          <img src="/files/shirt_900x.jpg">
+          <ul class="thumbnail-list"><li><img src="/files/shirt_100x.jpg"></li></ul>
+        </div>
+      </div>`;
+    expect(find({ productImage: '/files/shirt_200x.jpg' })?.el.className).toBe(
+      'product__media-wrapper',
+    );
+  });
+
+  it('anchors to the gallery wrapper, not the first slide, so the pill survives sliding', () => {
+    document.body.innerHTML = `
+      <media-gallery class="product__column-sticky" style="position:sticky">
+        <slider-component><ul class="product__media-list"><li class="product__media-item">
+          <div class="product__media" style="position:relative"><img src="/files/shirt_900x.jpg"></div>
+        </li></ul></slider-component>
+      </media-gallery>`;
+    const found = find({ productImage: '/files/shirt_200x.jpg' });
+    expect(found?.el.tagName.toLowerCase()).toBe('media-gallery');
+    expect(found?.needsRelative).toBe(false);
+  });
+
   it('returns null when the page has no usable image', () => {
     document.body.innerHTML = '<header><img src="/logo.png"></header><p>hello</p>';
     expect(find({ productImage: '/files/shirt.jpg' })).toBeNull();

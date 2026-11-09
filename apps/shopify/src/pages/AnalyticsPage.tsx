@@ -37,6 +37,19 @@ function StatTile({ label, value, action }: { label: string; value: string; acti
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
+// One figure per currency: a store that sells in several currencies must not
+// have them summed into a number that is in none of them.
+const money = (rows: { currency: string; amount: number }[]) =>
+  rows.length === 0
+    ? '—'
+    : rows
+        .map((r) =>
+          new Intl.NumberFormat(undefined, { style: 'currency', currency: r.currency }).format(
+            r.amount,
+          ),
+        )
+        .join(' · ');
+
 export default function AnalyticsPage() {
   const [installedAt, setInstalledAt] = useState<Date | null>(null);
   const [preset, setPreset] = useState<AnalyticsPreset | 'custom'>('30d');
@@ -206,6 +219,9 @@ export default function AnalyticsPage() {
               <StatTile label="Added to cart" value={String(data.cards.addedToCart)} />
               {/* Never "Conversion rate" — a merchant reads that as purchased. */}
               <StatTile label="Add-to-cart rate" value={pct(data.cards.addToCartRate)} />
+              {/* Orders paid within 7 days of a completed try-on of the same
+                  product; only the matching line items count, not the basket. */}
+              <StatTile label="Try-on revenue" value={money(data.cards.revenue)} />
               <StatTile label="Emails captured" value={String(data.cards.emailsCaptured)} />
               {/* A soft gate — most shoppers asked for an email submit it and
                   get their try-on anyway, so this is deliberately not part of
@@ -234,16 +250,17 @@ export default function AnalyticsPage() {
                   </button>
                 </InlineStack>
                 <Text as="p" tone="subdued">
-                  Emails of shoppers who tried on. Only shoppers who ticked the consent box have
-                  agreed to marketing; shoppers who logged in were not asked, so check the Consent
-                  column before adding an address to a mailing list.
+                  Emails of shoppers who tried on, one row per person. With Require login on, the
+                  email comes from the shopper's customer account and they are not asked for
+                  marketing consent, so check the Consent column before adding an address to a
+                  mailing list.
                 </Text>
                 {shoppers && shoppers.length === 0 ? (
                   <div className="av-empty">
                     <b>No contacts collected yet</b>
                     <span>
-                      Turn on "Only logged-in shoppers can try on" or "Ask for an email" under
-                      Settings → Limits to start collecting.
+                      Turn on "Require login" or "Ask for an email" under Settings → Limits to start
+                      collecting.
                     </span>
                   </div>
                 ) : (

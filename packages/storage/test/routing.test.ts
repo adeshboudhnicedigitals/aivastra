@@ -21,6 +21,7 @@ const EXPECTED: Record<keyof typeof keys, StorageBackend> = {
   shopifyCustomerPhotoPrefix: 'user',
   shopifyProductGarment: 'user',
   shopifyProductGarmentOverride: 'user',
+  shopifyProductGarmentViewed: 'user',
   devUpload: 'user',
   devUploadPrefix: 'user',
   extensionUpload: 'user',

@@ -33,6 +33,7 @@ export interface ShopifyStoreSettings {
   emailBonusClaimed?: boolean;
   emailBonusClaimedAt?: string;
   limits?: ShopifyStoreLimits;
+  tryon?: { useViewedImage?: boolean };
   retention?: ShopifyStoreRetention;
   widget?: ShopifyWidgetConfig;
   widgetConfigSynced?: boolean;
@@ -192,6 +193,7 @@ export interface ShopifyAnalyticsCards {
   addedToCart: number;
   addToCartRate: number;
   emailsCaptured: number;
+  revenue: { currency: string; amount: number; orders: number }[];
   turnedAway: { total: number; storeCap: number; shopperCap: number; emailGate: number };
 }
 

@@ -17,7 +17,7 @@ embedded = true
 [access_scopes]
 # Mirrors shopify.app.toml — see that file for why use_legacy_install_flow is
 # deliberately absent and how the managed-installation token exchange works.
-scopes = "read_products,write_products,read_themes"
+scopes = "read_products,write_products,read_themes,read_orders"
 optional_scopes = [ ]
 
 [auth]
@@ -41,6 +41,13 @@ api_version = "2026-07"
 
   # Mirrors shopify.app.toml — see that file for why this is declared here
   # rather than relying solely on the per-shop registration call.
+  # Revenue attribution (Analytics page). Needs read_orders above, and the app
+  # must be approved for protected customer data in the Partner Dashboard or the
+  # payload arrives without customer id/email and nothing can be attributed.
+  [[webhooks.subscriptions]]
+  topics = [ "orders/paid" ]
+  uri = "https://staging-admin.aivastra.com/v1/shopify/webhooks/orders_paid"
+
   [[webhooks.subscriptions]]
   topics = [ "app_purchases_one_time/update" ]
   uri = "https://staging-admin.aivastra.com/v1/shopify/webhooks/app_purchases_one_time_update"

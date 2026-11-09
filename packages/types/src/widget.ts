@@ -505,6 +505,9 @@ export const ShopifyCustomerJobRequest = z.object({
   // Contact data, like email: shopper-asserted, never an authorization input.
   // Only stored, and only required of shoppers of a login-required store.
   phone: z.string().trim().refine(isValidPhone, { message: 'invalid phone number' }).optional(),
+  // The product image the shopper was viewing. Only a hint: the API matches it
+  // against the product's own images and never fetches this URL.
+  imageUrl: z.string().url().max(2048).optional(),
 });
 export type ShopifyCustomerJobRequest = z.infer<typeof ShopifyCustomerJobRequest>;
 
@@ -540,8 +543,13 @@ export const ShopifyStoreRetentionPatch = z.object({
   shopperRecordDays: optionOrOff(SHOPPER_RECORD_RETENTION_DAYS).optional(),
 });
 
+export const ShopifyStoreTryonPatch = z.object({
+  useViewedImage: z.boolean().optional(),
+});
+
 export const ShopifyStoreSettingsPatch = z.object({
   limits: ShopifyStoreLimitsPatch.optional(),
+  tryon: ShopifyStoreTryonPatch.optional(),
   retention: ShopifyStoreRetentionPatch.optional(),
 });
 export type ShopifyStoreSettingsPatch = z.infer<typeof ShopifyStoreSettingsPatch>;
