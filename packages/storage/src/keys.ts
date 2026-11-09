@@ -50,6 +50,13 @@ export const keys = {
   // a fresh key per selection, alongside the synced garment.jpg.
   shopifyProductGarmentOverride: (storeId: string, productId: string | number, id: string) =>
     `shopify-garments/${storeId}/${productId}/garment-${id}.jpg`,
+  // The product image a shopper was viewing when they tried on (opt-in per store),
+  // cached per Shopify image id alongside the synced garment.jpg.
+  shopifyProductGarmentViewed: (
+    storeId: string,
+    productId: string | number,
+    imageId: string | number,
+  ) => `shopify-garments/${storeId}/${productId}/viewed-${imageId}.jpg`,
   // Chrome extension try-on uploads — keyed by the shopper's own user id, not
   // a merchant (no API key is involved on this path, see
   // apps/api/src/modules/extension/routes.ts).

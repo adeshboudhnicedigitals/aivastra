@@ -63,6 +63,7 @@ export default function SettingsPage() {
   const [selectedTab, setSelectedTab] = useState(0);
   const [limits, setLimits] = useState<ShopifyStoreLimits>({});
   const [retention, setRetention] = useState<ShopifyStoreRetention>({});
+  const [useViewedImage, setUseViewedImage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
@@ -75,6 +76,7 @@ export default function SettingsPage() {
       .then((res) => {
         setLimits(res.store.settings.limits ?? {});
         setRetention(res.store.settings.retention ?? {});
+        setUseViewedImage(res.store.settings.tryon?.useViewedImage === true);
         setLoading(false);
       })
       .catch((err) => {
@@ -93,7 +95,7 @@ export default function SettingsPage() {
     try {
       await apiFetch('/v1/shopify/settings', {
         method: 'PATCH',
-        body: JSON.stringify({ limits, retention }),
+        body: JSON.stringify({ limits, retention, tryon: { useViewedImage } }),
       });
       setToastMessage('Limits saved.');
     } catch (err) {
@@ -242,6 +244,21 @@ export default function SettingsPage() {
                       )
                     }
                   />
+                </SettingRow>
+                <SettingRow
+                  title="Use the image the shopper is viewing"
+                  description="The try-on uses the product photo the shopper has open in the gallery, such as the colour they picked, instead of always the first image. The shopper sees which image will be used. Off by default: product galleries often include model or lifestyle shots that make a poor garment photo."
+                >
+                  <button
+                    type="button"
+                    className="av-sw"
+                    role="switch"
+                    aria-checked={useViewedImage}
+                    aria-label="Use the image the shopper is viewing"
+                    onClick={() => setUseViewedImage((v) => !v)}
+                  >
+                    <span />
+                  </button>
                 </SettingRow>
               </div>
               <SaveBar saving={saving} onSave={save} />

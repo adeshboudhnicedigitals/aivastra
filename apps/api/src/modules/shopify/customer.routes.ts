@@ -38,6 +38,7 @@ import { ensureGarmentImage, syncProductNow } from './products.sync.js';
 import { resolveShopper } from './shopper.js';
 import { formatResetTime, windowEnd } from './store-day.js';
 import { shopifyStoreLifecycleLockKey } from './store-lock.js';
+import { resolveViewedGarmentKey } from './viewed-image.js';
 import { resolveShopifyWorkflow } from './workflow.js';
 
 const SLOT_RELEASE_MAX_ATTEMPTS = 3;
@@ -307,6 +308,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         shopifyCustomerId,
         email,
         emailConsent,
+        imageUrl: viewedImageUrl,
       } = req.body as {
         customerPhotoKey: string;
         shopifyProductId: number;
@@ -314,6 +316,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         shopifyCustomerId?: number;
         email?: string;
         emailConsent?: boolean;
+        imageUrl?: string;
       };
 
       // Identity: Shopify's signed logged-in customer id beats anything in the
@@ -417,6 +420,13 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: "We're preparing this product for try-on. Check back in a moment." });
       }
 
+      // Opt-in: try on the image the shopper was viewing instead of the featured one.
+      const viewed =
+        viewedImageUrl && store.settings.tryon?.useViewedImage === true
+          ? await resolveViewedGarmentKey(app, store, garment, shopifyProductId, viewedImageUrl)
+          : null;
+      const garmentKey = viewed?.r2Key ?? garment.r2Key;
+
       const resolvedWorkflow = await resolveShopifyWorkflow(app);
       if (!resolvedWorkflow) {
         // No workflow chosen (or the chosen one is inactive). This is an
@@ -506,13 +516,14 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
           await (tx.insert(schema.jobInputs).values as any)({
             jobId,
-            upperGarmentKey: garment.r2Key,
+            upperGarmentKey: garmentKey,
             faceId: null,
             backgroundId: null,
             poseId: null,
             params: {
               kind: 'shopify',
               shopifyProductId,
+              ...(viewed ? { viewedImageId: viewed.imageId } : {}),
               // Resolved above and pinned here so the dispatcher trusts it rather
               // than re-resolving — a workflow change mid-flight can't change the
               // workflow under a job whose credits are already deducted.
@@ -730,6 +741,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         enabled,
         verboseErrors: app.env.SHOPIFY_WIDGET_VERBOSE === true,
         loginRequired: store.settings.limits?.loginRequired === true,
+        useViewedImage: store.settings.tryon?.useViewedImage === true,
       };
     },
   );
