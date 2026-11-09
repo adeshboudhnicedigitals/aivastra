@@ -84,7 +84,7 @@ function resolveTheme(t: Theme): 'light' | 'dark' {
 }
 
 export default function App() {
-  const { token, role, isLoading } = useAuth();
+  const { token, isLoading } = useAuth();
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -240,7 +240,6 @@ export default function App() {
       <Sidebar
         page={segment}
         onNav={handleNav}
-        role={role ?? ''}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         mobileOpen={mobileNavOpen}

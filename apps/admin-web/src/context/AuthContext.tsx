@@ -9,6 +9,10 @@ interface AuthState {
   email: string | null;
   permissions: string[];
   hasPermission: (permission: string) => boolean;
+  // Sidebar-only visibility override, independent of `permissions` — see
+  // role-nav-overrides.routes.ts. `undefined` means "no override, use the
+  // permission-driven default".
+  isNavVisible: (navKey: string) => boolean | undefined;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -21,12 +25,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AdminRole | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [navOverrides, setNavOverrides] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   const handleAuthFailure = useCallback(() => {
     setTokenState(null);
     setRole(null);
     setPermissions([]);
+    setNavOverrides({});
   }, []);
 
   useEffect(() => {
@@ -41,16 +47,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [role, permissions],
   );
 
+  const isNavVisible = useCallback((navKey: string) => navOverrides[navKey], [navOverrides]);
+
   const fetchRole = useCallback(async () => {
     const me = await apiFetch<{
       userId: string;
       email: string;
       role: AdminRole;
       permissions?: string[];
+      navOverrides?: Record<string, boolean>;
     }>('/admin/me');
     setRole(me.role);
     setEmail(me.email);
     setPermissions(me.permissions ?? []);
+    setNavOverrides(me.navOverrides ?? {});
   }, []);
 
   useEffect(() => {
@@ -108,6 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRole(null);
     setEmail(null);
     setPermissions([]);
+    setNavOverrides({});
   }, []);
 
   return (
@@ -118,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email,
         permissions,
         hasPermission,
+        isNavVisible,
         isLoading,
         login,
         logout,

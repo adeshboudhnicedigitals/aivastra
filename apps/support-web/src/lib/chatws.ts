@@ -40,10 +40,10 @@ export async function fetchChatbot<T>(path: string): Promise<T> {
  * Auto-reconnects with exponential backoff on any drop (network blip, an idle
  * proxy closing the socket, a laptop waking from sleep). Without this, a
  * silently-dead connection stops the 15s agent-presence heartbeat the
- * chatbot's sweeper relies on — within a minute it treats the agent as gone,
- * unassigns the ticket and reopens it to the queue even though the agent is
- * still there and already answered it. `onConnectionChange` fires on every
- * open/close transition (not just the first) so a caller like ChatInboxPage
+ * chatbot's sweeper relies on — after 3 minutes with no heartbeat it treats
+ * the agent as gone and unassigns the ticket (reopening it to the queue only
+ * if the agent never actually replied — see sweeper.ts). `onConnectionChange`
+ * fires on every open/close transition (not just the first) so a caller like ChatInboxPage
  * can re-send `join` for whatever conversation is selected once reconnected.
  */
 export function connectAgentWs(

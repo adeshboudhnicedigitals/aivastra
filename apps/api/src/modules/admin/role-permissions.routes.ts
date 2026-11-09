@@ -23,7 +23,9 @@ const PatchBody = z.object({
 });
 
 export async function adminRolePermissionsRoutes(app: FastifyInstance) {
-  const GUARD = requirePermission('admin_users.manage');
+  // A deliberately narrower key than admin_users.manage (which gates admin-account
+  // approval, a separate capability) — see migration 0257_role_config_manage_permission.
+  const GUARD = requirePermission('role_config.manage');
 
   app.get('/admin/role-permissions', { preHandler: GUARD }, async () => {
     const allPermissions = await app.db

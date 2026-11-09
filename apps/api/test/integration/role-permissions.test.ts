@@ -95,9 +95,18 @@ describe('admin role-permissions matrix', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('403s a non-SUPER_ADMIN caller (admin_users.manage is SUPER_ADMIN-only today)', async () => {
-    const headers = await adminAuthHeader(app, 'ADMIN');
+  it('403s a caller without role_config.manage (MODERATOR and SUPPORT are seeded without it)', async () => {
+    const headers = await adminAuthHeader(app, 'MODERATOR');
     const res = await app.inject({ method: 'GET', url: '/admin/role-permissions', headers });
     expect(res.statusCode).toBe(403);
+  });
+
+  // ADMIN is seeded with role_config.manage (migration 0262) specifically so splitting
+  // this guard out of admin_users.manage wouldn't take away ADMIN's existing access to
+  // this tab — see the migration's comment.
+  it('200s for ADMIN, which is seeded with role_config.manage', async () => {
+    const headers = await adminAuthHeader(app, 'ADMIN');
+    const res = await app.inject({ method: 'GET', url: '/admin/role-permissions', headers });
+    expect(res.statusCode).toBe(200);
   });
 });
