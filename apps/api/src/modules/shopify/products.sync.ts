@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { and, desc, eq, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
@@ -343,6 +343,14 @@ function describeError(err: unknown): string {
  *  invalidates it. Merchant-picked overrides live under their own key and are
  *  left alone. A row from before image_url existed has no URL to compare, so its
  *  copy is dropped too — the next try-on re-downloads it. */
+function isStaleGarmentCopy(
+  existing: { imageUrl: string | null; r2Key: string } | undefined,
+  r2Key: string,
+  imageUrl: string,
+): boolean {
+  return !!existing && existing.r2Key === r2Key && existing.imageUrl !== imageUrl;
+}
+
 async function dropStaleGarmentCopy(
   app: FastifyInstance,
   storeId: string,
@@ -364,8 +372,7 @@ async function dropStaleGarmentCopy(
       ),
     )
     .limit(1);
-  if (!existing || existing.r2Key !== r2Key || existing.imageUrl === imageUrl) return;
-  await app.storage.deleteObject(r2Key);
+  if (isStaleGarmentCopy(existing, r2Key, imageUrl)) await app.storage.deleteObject(r2Key);
 }
 
 /** Sync records the product's metadata and image URL only; this fetches the image
@@ -429,6 +436,189 @@ export async function syncProduct(
   } catch (err) {
     app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
     await record('failed', describeError(err));
+  }
+}
+
+/** True when the stored row already holds everything a sync would write. */
+function isUnchangedRow(
+  existing:
+    | {
+        imageUrl: string | null;
+        title: string | null;
+        status: string;
+        productType: string | null;
+        tags: string[] | null;
+        vendor: string | null;
+        collections: string[] | null;
+        category: string | null;
+        failedReason: string | null;
+      }
+    | undefined,
+  next: {
+    imageUrl?: string | null;
+    title?: string | null;
+    status?: string;
+    productType?: string | null;
+    tags?: string[] | null;
+    vendor?: string | null;
+    collections?: string[] | null;
+    category?: string | null;
+    failedReason?: string | null;
+  },
+): boolean {
+  if (!existing) return false;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  return (
+    same(existing.imageUrl, next.imageUrl) &&
+    same(existing.title, next.title) &&
+    same(existing.status, next.status) &&
+    same(existing.productType, next.productType) &&
+    same(existing.vendor, next.vendor) &&
+    same(existing.category, next.category) &&
+    same(existing.failedReason, next.failedReason) &&
+    same(existing.tags, next.tags) &&
+    same(existing.collections, next.collections)
+  );
+}
+
+/**
+ * syncProduct for a whole Shopify page: one lookup of the existing rows and one
+ * multi-row upsert, instead of a select and an upsert per product. A 50,000
+ * product catalog is 2,000 pages, so the per-product round trips were most of the
+ * time spent after the Shopify call. If the combined write is rejected (one bad
+ * row fails the whole statement), the page falls back to per-product syncProduct
+ * so a single bad product is recorded as failed rather than blocking its page.
+ */
+export async function syncProducts(
+  app: FastifyInstance,
+  storeId: string,
+  products: ShopifyProduct[],
+): Promise<void> {
+  if (products.length === 0) return;
+  const t = schema.shopifyProductGarments;
+  const existingRows = await app.db
+    .select({
+      id: t.shopifyProductId,
+      imageUrl: t.imageUrl,
+      r2Key: t.r2Key,
+      title: t.title,
+      status: t.status,
+      productType: t.productType,
+      tags: t.tags,
+      vendor: t.vendor,
+      collections: t.collections,
+      category: t.category,
+      failedReason: t.failedReason,
+    })
+    .from(t)
+    .where(
+      and(
+        eq(t.storeId, storeId),
+        eq(t.shopifyVariantId, NO_VARIANT_SENTINEL),
+        inArray(
+          t.shopifyProductId,
+          products.map((p) => p.id),
+        ),
+      ),
+    );
+  const existing = new Map(existingRows.map((r) => [r.id, r]));
+
+  const rows: (typeof t.$inferInsert)[] = [];
+  const unchangedIds: number[] = [];
+  await forEachLimit(products, SYNC_CONCURRENCY, async (product) => {
+    const r2Key = keys.shopifyProductGarment(storeId, product.id);
+    const src = product.imageUrl ?? null;
+    const row: typeof t.$inferInsert = {
+      storeId,
+      shopifyProductId: product.id,
+      shopifyVariantId: NO_VARIANT_SENTINEL,
+      r2Key,
+      imageUrl: src,
+      title: product.title,
+      status: 'active',
+      productType: product.productType ?? null,
+      tags: product.tags ?? null,
+      vendor: product.vendor ?? null,
+      collections: product.collections ?? null,
+      category: product.category ?? null,
+      failedReason: null,
+    };
+    let rejection: string | null = null;
+    if (!src) {
+      rejection = 'no product image';
+    } else {
+      try {
+        assertShopifyCdn(src);
+      } catch (err) {
+        rejection = describeError(err);
+      }
+    }
+    if (rejection) {
+      row.status = 'failed';
+      row.failedReason = rejection;
+    }
+    // Already stored exactly like this: nothing to write. A re-sync of a
+    // large catalog is mostly products that have not changed.
+    if (isUnchangedRow(existing.get(product.id), row)) {
+      unchangedIds.push(product.id);
+      return;
+    }
+    if (src && !rejection && isStaleGarmentCopy(existing.get(product.id), r2Key, src)) {
+      try {
+        await app.storage.deleteObject(r2Key);
+      } catch (err) {
+        app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
+        row.status = 'failed';
+        row.failedReason = describeError(err);
+      }
+    }
+    rows.push(row);
+  });
+
+  // The sync progress bar counts rows touched since the sync started, so the
+  // skipped ones still get their timestamp moved, in one statement.
+  if (unchangedIds.length > 0) {
+    await app.db
+      .update(t)
+      .set({ syncedAt: sql`now()` })
+      .where(
+        and(
+          eq(t.storeId, storeId),
+          eq(t.shopifyVariantId, NO_VARIANT_SENTINEL),
+          inArray(t.shopifyProductId, unchangedIds),
+        ),
+      );
+  }
+  if (rows.length === 0) return;
+
+  try {
+    await app.db
+      .insert(t)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [t.storeId, t.shopifyProductId, t.shopifyVariantId],
+        // r2Key is left out: an override a merchant picked must survive a sync.
+        set: {
+          imageUrl: sql`excluded.image_url`,
+          title: sql`excluded.title`,
+          status: sql`excluded.status`,
+          productType: sql`excluded.product_type`,
+          tags: sql`excluded.tags`,
+          vendor: sql`excluded.vendor`,
+          collections: sql`excluded.collections`,
+          category: sql`excluded.category`,
+          failedReason: sql`excluded.failed_reason`,
+          syncedAt: sql`now()`,
+        },
+      });
+  } catch (err) {
+    app.log.warn({ err, storeId }, 'batched product write failed; retrying one by one');
+    const changedIds = new Set(rows.map((r) => r.shopifyProductId));
+    await forEachLimit(
+      products.filter((p) => changedIds.has(p.id)),
+      SYNC_CONCURRENCY,
+      (product) => syncProduct(app, storeId, product),
+    );
   }
 }
 
@@ -772,9 +962,7 @@ export async function syncOneTask(app: FastifyInstance, task: SyncTask): Promise
     for (const product of products) liveProductIds.push(product.id);
     // Concurrent within a page, sequential across pages — the page fetch above
     // is what the Shopify cost budget and the throttle below pace.
-    await forEachLimit(products, SYNC_CONCURRENCY, (product) =>
-      syncProduct(app, store.id, product),
-    );
+    await syncProducts(app, store.id, products);
     app.log.info(
       {
         storeId: store.id,
