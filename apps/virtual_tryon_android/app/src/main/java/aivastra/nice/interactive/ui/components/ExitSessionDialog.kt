@@ -40,7 +40,7 @@ import aivastra.nice.interactive.ui.theme.PoppinsFamily
 fun ExitSessionDialog(
     onGoHome: () -> Unit,
     onGoToDownloads: (() -> Unit)?,
-    onRetake: () -> Unit,
+    onRetake: (() -> Unit)?,
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -118,7 +118,9 @@ fun ExitSessionDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                ExitDialogSecondaryButton(text = "Retake", onClick = onRetake)
+                if (onRetake != null) {
+                    ExitDialogSecondaryButton(text = "Retake", onClick = onRetake)
+                }
 
                 Spacer(Modifier.height(10.dp))
 

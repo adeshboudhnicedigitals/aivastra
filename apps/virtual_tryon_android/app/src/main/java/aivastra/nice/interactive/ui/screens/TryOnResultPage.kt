@@ -27,6 +27,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
@@ -70,6 +74,9 @@ fun TryOnResultPage(
     onBack: () -> Unit,
     onTryAnother: () -> Unit,
     tryAnotherLabel: String = "Try Another",
+    // Quick try-on: every result from this session, shown with previous/next buttons like the
+    // regular session gallery. Empty keeps the single-image behaviour.
+    sessionResults: List<String> = emptyList(),
     onDownload: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -88,6 +95,18 @@ fun TryOnResultPage(
     var imageOffset by remember { mutableStateOf(Offset.Zero) }
     var imageContainerSize by remember { mutableStateOf(IntSize.Zero) }
 
+    // Lands on the newest result whenever one is added, then lets the customer page through.
+    var historyIndex by remember { mutableIntStateOf(sessionResults.lastIndex.coerceAtLeast(0)) }
+    LaunchedEffect(sessionResults.size) {
+        historyIndex = sessionResults.lastIndex.coerceAtLeast(0)
+    }
+    val showHistory = sessionResults.size > 1
+    val shownUrl = if (showHistory) sessionResults[historyIndex.coerceIn(0, sessionResults.lastIndex)] else resultImageUrl
+    LaunchedEffect(shownUrl) {
+        imageScale = 1f
+        imageOffset = Offset.Zero
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -95,7 +114,7 @@ fun TryOnResultPage(
     ) {
         // Result Image Display
         AsyncImage(
-            model = resultImageUrl,
+            model = shownUrl,
             contentDescription = "Try-On Result",
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -127,6 +146,63 @@ fun TryOnResultPage(
                     translationY = imageOffset.y
                 }
         )
+
+        if (showHistory) {
+            val count = sessionResults.size
+            val arrowBrush = Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100)))
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(sdp(R.dimen._16sdp))
+                    .size(sdp(R.dimen._36sdp))
+                    .clip(CircleShape)
+                    .background(arrowBrush)
+                    .clickable { historyIndex = if (historyIndex - 1 < 0) count - 1 else historyIndex - 1 },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Previous result",
+                    tint = Color.White,
+                    modifier = Modifier.size(sdp(R.dimen._22sdp))
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(sdp(R.dimen._16sdp))
+                    .size(sdp(R.dimen._36sdp))
+                    .clip(CircleShape)
+                    .background(arrowBrush)
+                    .clickable { historyIndex = (historyIndex + 1) % count },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Next result",
+                    tint = Color.White,
+                    modifier = Modifier.size(sdp(R.dimen._22sdp))
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = navBarH + sdp(R.dimen._34sdp) + sdp(R.dimen._bottom_action_button_height) + sdp(R.dimen._28sdp)),
+                horizontalArrangement = Arrangement.spacedBy(sdp(R.dimen._6sdp)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                sessionResults.indices.forEach { index ->
+                    val isActive = index == historyIndex
+                    Box(
+                        modifier = Modifier
+                            .size(if (isActive) sdp(R.dimen._8sdp) else sdp(R.dimen._6sdp))
+                            .clip(CircleShape)
+                            .background(if (isActive) Color(0xFFE7A52C) else Color.White.copy(alpha = 0.4f))
+                            .clickable { historyIndex = index }
+                    )
+                }
+            }
+        }
 
         // Floating Content Overlay with status bar inset handling
         Column(

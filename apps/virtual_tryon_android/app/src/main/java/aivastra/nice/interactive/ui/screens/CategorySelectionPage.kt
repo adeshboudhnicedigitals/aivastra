@@ -328,14 +328,6 @@ fun CategorySelectionPage(
                                                 )
                                                 ProfileMenuItem(
                                                     leadingIcon = {
-                                                        Icon(painterResource(R.drawable.camera_icon_), null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
-                                                    },
-                                                    title = "Quick Try-On",
-                                                    subtitle = "Take one photo, get a look",
-                                                    onClick = { showProfileMenu = false; onQuickTryOnClick() }
-                                                )
-                                                ProfileMenuItem(
-                                                    leadingIcon = {
                                                         Icon(Icons.AutoMirrored.Filled.List, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
                                                     },
                                                     title = "Reports",
@@ -375,6 +367,31 @@ fun CategorySelectionPage(
 
                         // ── Title ───────────────────────────────────────────
                         Box(modifier = Modifier.fillMaxWidth()) {
+                            // Quick try-on sits beside the heading: one camera photo, no category.
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
+                                    .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
+                                    .clickable(onClick = onQuickTryOnClick)
+                                    .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._8sdp)),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.camera_icon_),
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(sdp(R.dimen._16sdp))
+                                )
+                                Spacer(Modifier.width(sdp(R.dimen._6sdp)))
+                                Text(
+                                    "Quick Try-On",
+                                    color = Color.White,
+                                    fontSize = ssp(R.dimen._12ssp),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = PoppinsFamily
+                                )
+                            }
                             Column {
                                 Text(
                                     text = buildAnnotatedString {
