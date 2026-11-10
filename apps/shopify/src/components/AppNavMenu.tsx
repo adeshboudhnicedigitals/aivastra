@@ -1,11 +1,4 @@
-import {
-  CashDollarIcon,
-  ChartVerticalIcon,
-  HomeIcon,
-  ProductIcon,
-  QuestionCircleIcon,
-  SettingsIcon,
-} from '@shopify/polaris-icons';
+import { CashDollarIcon, HomeIcon, SettingsIcon } from '@shopify/polaris-icons';
 import { useNavigate } from 'react-router-dom';
 import { runNavGuard } from '../lib/navGuard';
 
@@ -14,13 +7,12 @@ import { runNavGuard } from '../lib/navGuard';
 // bare "/manage" would land outside the app's base in production.
 const BASENAME = import.meta.env.PROD ? '/shopify-admin' : '';
 
+// Support is deliberately not here: it lives behind the header's Help & Support
+// button (AppChrome) and stays routable at /support.
 export const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: HomeIcon },
-  { path: '/manage', label: 'Manage', icon: ProductIcon },
-  { path: '/analytics', label: 'Analytics', icon: ChartVerticalIcon },
-  { path: '/pricing', label: 'Credits', icon: CashDollarIcon },
+  { path: '/pricing', label: 'Billing', icon: CashDollarIcon },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
-  { path: '/support', label: 'Support', icon: QuestionCircleIcon },
 ];
 
 export function AppNavMenu({ onboardingComplete }: { onboardingComplete: boolean }) {

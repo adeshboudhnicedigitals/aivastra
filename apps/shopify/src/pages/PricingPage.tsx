@@ -2,7 +2,6 @@ import {
   Banner,
   BlockStack,
   Button,
-  Icon,
   InlineStack,
   Select,
   SkeletonBodyText,
@@ -10,24 +9,34 @@ import {
   Text,
   TextField,
 } from '@shopify/polaris';
-import { CheckIcon } from '@shopify/polaris-icons';
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AppFont } from '../components/AppFont';
 import { AppPage } from '../components/AppPage';
 import { AvCard } from '../components/AvCard';
 import { BalanceCard } from '../components/BalanceCard';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { InfoTip } from '../components/InfoTip';
+import { PackGrid } from '../components/PackGrid';
 import { Glyph } from '../components/PageHead';
 import { PendingPaymentBanner } from '../components/PendingPaymentBanner';
 import { apiFetch, navigateTopLevel } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { PACK_DISPLAY, SHARED_FEATURE_BULLETS, tryOnsFromCredits } from '../lib/packs';
+import { PACK_DISPLAY, tryOnsFromCredits } from '../lib/packs';
 import type { ShopifyMe } from '../types';
 import { LowCreditsBanner } from './DashboardPage';
 
+// A field label with its help text behind an info icon, instead of a line of
+// help text under the control.
+function LabelWithInfo({ text, info }: { text: string; info: string }) {
+  return (
+    <span className="av2-label-info">
+      {text}
+      <InfoTip label={text} info={info} size={18} />
+    </span>
+  );
+}
+
 export default function PricingPage() {
-  const navigate = useNavigate();
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [error, setError] = useState<ClassifiedError | null>(null);
   const [loading, setLoading] = useState(true);
@@ -145,20 +154,49 @@ export default function PricingPage() {
 
   return (
     <AppFont>
-      <AppPage title="Credits" subtitle="Buy credits once. They never expire.">
-        <div className="av-split">
-          <div className="main">
-            <ErrorBanner error={error} onRetry={load} />
+      <AppPage
+        title="Billing"
+        subtitle="Manage your credits, auto-refill, and purchase credit packs. Credits never expire."
+      >
+        <div className="av2-bill-page">
+          <ErrorBanner error={error} onRetry={load} />
 
-            {me && <LowCreditsBanner me={me} hideCapReached />}
-            {me && <PendingPaymentBanner shopDomain={me.store.shopDomain} include="all" />}
+          {me && <LowCreditsBanner me={me} hideCapReached />}
+          {me && <PendingPaymentBanner shopDomain={me.store.shopDomain} include="all" />}
 
+          <div className="av2-bill">
             <BalanceCard
               me={me}
               action={
-                <button type="button" className="av-btn-ghost" onClick={() => navigate('/')}>
-                  View packs
-                </button>
+                <div className="av2-actions">
+                  <button
+                    type="button"
+                    className="av-btn-primary"
+                    onClick={() =>
+                      document
+                        .getElementById('credit-packs')
+                        ?.scrollIntoView({ behavior: 'smooth' })
+                    }
+                  >
+                    <Glyph size={22}>
+                      <path d="M12 5v14M5 12h14" />
+                    </Glyph>
+                    Buy Credits
+                  </button>
+                  {/* No billing-history endpoint yet; kept so the layout matches the design. */}
+                  <button
+                    type="button"
+                    className="av-btn-ghost"
+                    disabled
+                    title="Billing history is coming soon"
+                  >
+                    <Glyph size={22}>
+                      <path d="M6 3h8l4 4v14H6V3z" />
+                      <path d="M14 3v4h4M9 12h6M9 16h6" />
+                    </Glyph>
+                    View Billing History
+                  </button>
+                </div>
               }
             />
 
@@ -171,6 +209,10 @@ export default function PricingPage() {
                     </Glyph>
                   </span>
                   <h2 className="av-h2">Auto-refill</h2>
+                  <InfoTip
+                    label="Auto-refill"
+                    info="Never run out. When your balance drops below your chosen threshold we buy your chosen pack automatically, and auto-refill packs include 10% extra credits."
+                  />
                   {autorefillStatus === 'ACTIVE' && <span className="av-chip ok">On</span>}
                   {autorefillStatus === 'PENDING' && (
                     <span className="av-chip warn">Awaiting approval</span>
@@ -185,11 +227,6 @@ export default function PricingPage() {
                     <span className="av-chip warn">Declined</span>
                   )}
                 </div>
-
-                <p className="av-sub" style={{ margin: 0 }}>
-                  Never run out. When your balance drops below your chosen threshold we buy your
-                  chosen pack automatically, and auto-refill packs include 10% extra credits.
-                </p>
 
                 {/* Called out in its own block, not folded into the paragraph above —
                 these are the exact numbers governing when and how much the
@@ -261,7 +298,12 @@ export default function PricingPage() {
                       onChange={setRefillPack}
                     />
                     <Select
-                      label="Refill when balance drops below"
+                      label={
+                        <LabelWithInfo
+                          text="Refill threshold"
+                          info="Refill when your balance drops below this level. 20% is the default we use if you don't change this — lower means fewer, bigger refills; higher means smaller top-ups more often."
+                        />
+                      }
                       options={['10', '20', '30'].map((pct) => {
                         const pack = PACK_DISPLAY.find((p) => p.id === refillPack);
                         const credits = pack ? Math.round((pack.credits * Number(pct)) / 100) : 0;
@@ -272,15 +314,18 @@ export default function PricingPage() {
                       })}
                       value={refillThresholdPct}
                       onChange={setRefillThresholdPct}
-                      helpText="20% is the default we use if you don't change this — lower means fewer, bigger refills; higher means smaller top-ups more often."
                     />
                     <TextField
-                      label="Monthly limit"
+                      label={
+                        <LabelWithInfo
+                          text="Monthly limit"
+                          info="The most we can charge you in a 30-day period. You approve this once; refills after that are automatic. You can change or cancel it any time."
+                        />
+                      }
                       type="number"
                       prefix="$"
                       value={refillCap}
                       onChange={setRefillCap}
-                      helpText="The most we can charge you in a 30-day period. You approve this once; refills after that are automatic. You can change or cancel it any time."
                       autoComplete="off"
                     />
                   </div>
@@ -344,21 +389,14 @@ export default function PricingPage() {
               </BlockStack>
             </AvCard>
           </div>
-          <aside>
-            <AvCard>
-              <h2 className="av-h2">Included with every pack</h2>
-              <ul className="av-inc">
-                {SHARED_FEATURE_BULLETS.map((label) => (
-                  <li key={label}>
-                    <span>
-                      <Icon source={CheckIcon} tone="success" />
-                    </span>
-                    {label}
-                  </li>
-                ))}
-              </ul>
-            </AvCard>
-          </aside>
+
+          <AvCard>
+            <div id="credit-packs" style={{ scrollMarginTop: 24 }}>
+              <h2 className="av-h2">Credit Packs</h2>
+              <p className="av-sub">Choose a pack that fits your business needs.</p>
+            </div>
+            <PackGrid onError={setError} />
+          </AvCard>
         </div>
       </AppPage>
     </AppFont>

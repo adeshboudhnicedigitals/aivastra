@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ShopifyMe } from '../types';
-import {
-  canShowPostProductsPage,
-  canShowProductsPage,
-  getOnboardingStep,
-  isProductsDone,
-} from './onboarding';
+import { getOnboardingStep } from './onboarding';
 
 function me(
   syncedProductCount: number,
@@ -51,31 +46,18 @@ function me(
   };
 }
 
-describe('single-workflow onboarding steps', () => {
+describe('onboarding steps', () => {
   it('shows intro for a fresh store', () => expect(getOnboardingStep(me(0))).toBe('intro'));
-  it('moves synced stores to theme until the theme is confirmed', () =>
+  it('resumes synced stores at theme until the theme is confirmed', () =>
     expect(getOnboardingStep(me(2))).toBe('theme'));
-  it('completes when products and theme are done', () =>
+  it('completes once the theme is confirmed', () =>
     expect(getOnboardingStep(me(2, true))).toBeNull());
-  it('shows products when theme is confirmed but nothing is synced', () =>
-    expect(getOnboardingStep(me(0, true))).toBe('products'));
-  it('derives product completion only from synced count', () =>
-    expect(isProductsDone(me(1))).toBe(true));
-  it('allows the products page for intro, products and theme', () => {
-    expect(canShowProductsPage('intro')).toBe(true);
-    expect(canShowProductsPage('products')).toBe(true);
-    expect(canShowProductsPage('theme')).toBe(true);
-    expect(canShowProductsPage(null)).toBe(false);
-  });
-  it('allows post-products pages only after products', () => {
-    expect(canShowPostProductsPage('theme')).toBe(true);
-    expect(canShowPostProductsPage(null)).toBe(true);
-    expect(canShowPostProductsPage('products')).toBe(false);
-  });
+  it('does not wait for products: a store with none finishes when the theme is done', () =>
+    expect(getOnboardingStep(me(0, true))).toBeNull());
 });
 
 describe('skipping the theme step', () => {
-  it('ends onboarding once products are synced, without claiming the block is placed', () => {
+  it('ends onboarding when the step is skipped, without claiming the block is placed', () => {
     expect(getOnboardingStep(me(3, false, true))).toBeNull();
     expect(getOnboardingStep(me(3, false, false))).toBe('theme');
   });

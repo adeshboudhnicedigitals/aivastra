@@ -1,27 +1,34 @@
 import {
   Banner,
   BlockStack,
-  Button,
-  InlineStack,
+  Select,
   SkeletonBodyText,
   SkeletonPage,
   Text,
+  TextField,
   Toast,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AppFont } from '../components/AppFont';
 import { AppPage } from '../components/AppPage';
 import { AvCard } from '../components/AvCard';
-import { BalanceCard } from '../components/BalanceCard';
+import { BarChart } from '../components/BarChart';
+import { ChartTable } from '../components/ChartTable';
 import { ErrorBanner } from '../components/ErrorBanner';
-import { PackGrid } from '../components/PackGrid';
+import { Glyph } from '../components/PageHead';
 import { PendingPaymentBanner } from '../components/PendingPaymentBanner';
-import { apiFetch } from '../lib/api';
+import { ANALYTICS_PRESETS, type AnalyticsPreset, resolvePreset } from '../lib/analyticsRange';
+import { apiFetch, apiFetchResponse } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { isTryOnOff } from '../lib/onboarding';
 import { needsButtonBlock } from '../lib/theme';
-import type { ShopifyMe, ShopifyStats, ShopifyWelcomeCreditsResponse } from '../types';
+import type {
+  ShopifyAnalytics,
+  ShopifyMe,
+  ShopifyShopperListItem,
+  ShopifyWelcomeCreditsResponse,
+} from '../types';
 
 // Uses useNavigate() directly rather than accepting navigate as a prop: both
 // call sites (Dashboard, Pricing) render this from within the SPA's router
@@ -116,21 +123,152 @@ export function LowCreditsBanner({
   );
 }
 
-type StatusKey = keyof ShopifyStats['statusCounts'];
+const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
-const STATUS_CHIP: Record<StatusKey, 'ok' | 'warn' | 'bad' | 'info'> = {
-  active: 'ok',
-  processing: 'warn',
-  failed: 'bad',
-  disabled: 'info',
-};
+// One figure per currency: a store that sells in several currencies must not
+// have them summed into a number that is in none of them.
+const money = (rows: { currency: string; amount: number }[]) =>
+  rows.length === 0
+    ? '—'
+    : rows
+        .map((r) =>
+          new Intl.NumberFormat(undefined, { style: 'currency', currency: r.currency }).format(
+            r.amount,
+          ),
+        )
+        .join(' · ');
 
-const STATUS_LABEL: Record<StatusKey, string> = {
-  active: 'Active',
-  processing: 'Processing',
-  failed: 'Failed',
-  disabled: 'Disabled',
-};
+const PAGE_SIZE = 5;
+
+// Period-over-period deltas are not served by /analytics yet, so the design's
+// ▲/▼ chips render as a neutral placeholder until they are.
+function DeltaChip() {
+  return (
+    <span className="av-chip info" title="Comparison with the previous period is coming soon">
+      —
+    </span>
+  );
+}
+
+function Kpi({
+  icon,
+  label,
+  value,
+  big = false,
+  note,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  big?: boolean;
+  /** For stock values that do not depend on the date range: a caption instead of a period delta. */
+  note?: string;
+}) {
+  return (
+    <AvCard>
+      <div className={`av2-kpi${big ? ' big' : ''}`}>
+        <span className="av-tile av2-tile">{icon}</span>
+        <div>
+          <div className="av-k">{label}</div>
+          <div className="av2-kpi-row">
+            <span className="av-big">{value}</span>
+            {note === undefined && <DeltaChip />}
+          </div>
+          {note !== undefined && <div className="av-sub">{note}</div>}
+        </div>
+      </div>
+    </AvCard>
+  );
+}
+
+function Pager({
+  page,
+  pages,
+  total,
+  noun,
+  onPage,
+}: {
+  page: number;
+  pages: number;
+  total: number;
+  noun: string;
+  onPage: (p: number) => void;
+}) {
+  const from = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const to = Math.min(total, (page + 1) * PAGE_SIZE);
+  return (
+    <div className="av2-pager">
+      <span>{`Showing ${from}–${to} of ${total} ${noun}`}</span>
+      {pages > 1 && (
+        <div className="av2-pages">
+          <button
+            type="button"
+            aria-label="Previous page"
+            disabled={page === 0}
+            onClick={() => onPage(page - 1)}
+          >
+            ‹
+          </button>
+          {Array.from({ length: pages }, (_, i) => (
+            <button
+              // biome-ignore lint/suspicious/noArrayIndexKey: page numbers are the identity
+              key={i}
+              type="button"
+              className={i === page ? 'on' : undefined}
+              aria-current={i === page ? 'page' : undefined}
+              onClick={() => onPage(i)}
+            >
+              {i + 1}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label="Next page"
+            disabled={page >= pages - 1}
+            onClick={() => onPage(page + 1)}
+          >
+            ›
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionHead({
+  icon,
+  title,
+  subtitle,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="av2-sec-head">
+      <div className="av2-sec-title">
+        <span className="av-tile av2-tile sm">{icon}</span>
+        <div>
+          <h2 className="av-h2">{title}</h2>
+          <p className="av-sub">{subtitle}</p>
+        </div>
+      </div>
+      <div className="av2-tools">{children}</div>
+    </div>
+  );
+}
+
+const searchIcon = (
+  <Glyph size={20}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="M20 20l-4-4" />
+  </Glyph>
+);
+
+type ContactSort = 'firstSeen' | 'tryOns';
+type ProductSort = 'tryOns' | 'shoppers' | 'rate';
 
 export default function DashboardPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
@@ -142,6 +280,19 @@ export default function DashboardPage() {
   // result looks identical to the button doing nothing.
   const [embedCheckMessage, setEmbedCheckMessage] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // Analytics, folded in from the retired Analytics page.
+  const [preset, setPreset] = useState<AnalyticsPreset>('30d');
+  const [analytics, setAnalytics] = useState<ShopifyAnalytics | null>(null);
+  // Independent of the date range -- the shopper list is not range-scoped.
+  const [shoppers, setShoppers] = useState<ShopifyShopperListItem[] | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [contactQuery, setContactQuery] = useState('');
+  const [contactSort, setContactSort] = useState<ContactSort>('firstSeen');
+  const [contactPage, setContactPage] = useState(0);
+  const [productQuery, setProductQuery] = useState('');
+  const [productSort, setProductSort] = useState<ProductSort>('tryOns');
+  const [productPage, setProductPage] = useState(0);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -164,6 +315,43 @@ export default function DashboardPage() {
         .catch((err) => setError(classifyError(err))),
     [],
   );
+
+  // Products added to Shopify outside the app (CSV import, bulk edit, missed
+  // webhooks) are picked up by asking the API to reconcile; the counts then
+  // refresh until they catch up. Manage used to do this when opened. Best-effort.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { behindBy } = await apiFetch<{ behindBy: number }>('/v1/shopify/products/catch-up', {
+        method: 'POST',
+      });
+      for (let i = 0; i < 20 && behindBy > 0 && !cancelled; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        if (!cancelled) await refreshMe();
+      }
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshMe]);
+
+  const connectedSince = me?.store.connectedSince;
+  useEffect(() => {
+    if (!connectedSince) return;
+    const range = resolvePreset(preset, new Date(connectedSince));
+    apiFetch<ShopifyAnalytics>(`/v1/shopify/analytics?from=${range.from}&to=${range.to}`)
+      .then(setAnalytics)
+      .catch((err) => setError(classifyError(err)));
+  }, [connectedSince, preset]);
+
+  useEffect(() => {
+    apiFetch<{ items: ShopifyShopperListItem[] }>('/v1/shopify/shoppers')
+      .then((res) => setShoppers(res.items))
+      .catch((err) => {
+        setError(classifyError(err));
+        setShoppers([]);
+      });
+  }, []);
 
   // The welcome credits are granted the first time a store lands here — no claim
   // button, no popup. The server checks `emailBonusClaimed` and is idempotent, so
@@ -247,6 +435,56 @@ export default function DashboardPage() {
     }
   }
 
+  async function exportCsv() {
+    // Not a plain <a href>: this SPA is served from a different origin than the
+    // API in production, and /v1/shopify/shoppers.csv is behind
+    // requireShopifySession, which needs the App Bridge bearer token that a
+    // link navigation cannot carry. Fetch it authenticated, then hand the
+    // browser a blob URL to download.
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await apiFetchResponse('/v1/shopify/shoppers.csv');
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = 'shoppers.csv';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const contacts = useMemo(() => {
+    const q = contactQuery.trim().toLowerCase();
+    return (shoppers ?? [])
+      .filter((s) => (q ? s.email.toLowerCase().includes(q) : true))
+      .sort((a, b) =>
+        contactSort === 'tryOns'
+          ? b.tryOnCount - a.tryOnCount
+          : new Date(b.firstSeenAt).getTime() - new Date(a.firstSeenAt).getTime(),
+      );
+  }, [shoppers, contactQuery, contactSort]);
+
+  const products = useMemo(() => {
+    const q = productQuery.trim().toLowerCase();
+    return (analytics?.products ?? [])
+      .filter((p) => (q ? (p.title ?? '').toLowerCase().includes(q) : true))
+      .sort((a, b) =>
+        productSort === 'shoppers'
+          ? b.uniqueShoppers - a.uniqueShoppers
+          : productSort === 'rate'
+            ? b.addToCartRate - a.addToCartRate
+            : b.tryOns - a.tryOns,
+      );
+  }, [analytics, productQuery, productSort]);
+
   if (loading) {
     return (
       <AppFont>
@@ -265,11 +503,22 @@ export default function DashboardPage() {
   // basket — and the partial case gets its own, milder warning below.
   const tryOnOff = me != null && isTryOnOff(me);
   const embedNeeded = me != null && needsButtonBlock(me);
+  const cards = analytics?.cards;
+  const stats = me?.stats;
+  const contactPages = Math.max(1, Math.ceil(contacts.length / PAGE_SIZE));
+  const productPages = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
+  const contactRows = contacts.slice(contactPage * PAGE_SIZE, (contactPage + 1) * PAGE_SIZE);
+  const productRows = products.slice(productPage * PAGE_SIZE, (productPage + 1) * PAGE_SIZE);
+  const balance = me?.creditBalance ?? 0;
+
   return (
     <AppFont>
-      <AppPage title="Dashboard" subtitle="Here's how virtual try-on is performing on your store.">
+      <AppPage
+        title="Dashboard"
+        subtitle="Monitor your Virtual Try-On performance and manage your store."
+      >
         <BlockStack gap="400">
-          <ErrorBanner error={error} onRetry={load} />
+          <ErrorBanner error={error} onRetry={load} onDismiss={() => setError(null)} />
 
           {embedNeeded && (
             <Banner
@@ -302,11 +551,11 @@ export default function DashboardPage() {
             <Banner
               tone="warning"
               title="Virtual try-on is currently off"
-              action={{ content: 'Go to Manage', onAction: () => navigate('/manage') }}
+              action={{ content: 'Go to Settings', onAction: () => navigate('/settings') }}
             >
               <Text as="p">
                 No products are enabled right now, so shoppers won't see the try-on button. Turn it
-                back on in Manage.
+                back on in Settings.
               </Text>
             </Banner>
           )}
@@ -314,91 +563,367 @@ export default function DashboardPage() {
           {me && <LowCreditsBanner me={me} />}
           {me && <PendingPaymentBanner shopDomain={me.store.shopDomain} include="awaiting" />}
 
-          <BalanceCard
-            me={me}
-            action={
-              <button type="button" className="av-btn-primary" onClick={() => navigate('/pricing')}>
-                Buy credits
-              </button>
-            }
-          />
-
-          <PackGrid
-            onError={setError}
-            leadingCard={
-              // First-time users only — the free tier is the welcome-credits bonus
-              // (see the effect above), gone the moment a store buys its first
-              // pack. Informational only: nothing to claim here any more, the
-              // bonus is granted automatically on arrival.
-              me != null && !me.hasPurchasedPack ? (
-                <div className="av-c" style={{ padding: 28 }}>
-                  <h2 className="av-h2">Free Tier</h2>
-                  <span className="av-chip ok" style={{ marginTop: 10 }}>
-                    No purchase required
-                  </span>
-                  <div className="av-big lg">
-                    {me.runway.tryOnsRemaining.toLocaleString()} try-ons
-                  </div>
-                  <div className="av-sub">Added automatically to get started.</div>
+          <div className="av2-top">
+            <section className="av-c av2-balance">
+              <span className="av-tile av2-tile lg">
+                <Glyph size={34}>
+                  <ellipse cx="12" cy="6" rx="7" ry="3" />
+                  <path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
+                </Glyph>
+              </span>
+              <div className="av2-balance-main">
+                <div className="av-k">Current Balance</div>
+                <div className="av-big">{balance.toLocaleString()} credits</div>
+                <div className="av2-plan">
+                  Plan: <span className="av-chip brand">{me?.currentPack?.label ?? 'Free'}</span>
                 </div>
-              ) : undefined
-            }
-          />
-
-          <div className="av-grid av-g5">
-            <AvCard>
-              <div className="av-k">Try-Ons</div>
-              <div className="av-big">{me?.stats.totalTryOns ?? 0}</div>
-            </AvCard>
-            <AvCard>
-              <div className="av-k">Products Synced</div>
-              <div className="av-big">{me?.stats.syncedProductCount ?? 0}</div>
-            </AvCard>
-            <AvCard>
-              <div className="av-k">Try-On Enabled</div>
-              <div className="av-big">{me?.stats.enabledProductCount ?? 0}</div>
-              <div className="av-sub">of {me?.stats.syncedProductCount ?? 0} synced</div>
-            </AvCard>
-            <AvCard>
-              <div className="av-k">Today's try-ons</div>
-              <div className="av-big">
-                {me?.stats.storeDailyCap
-                  ? `${me.stats.todayTryOns} / ${me.stats.storeDailyCap}`
-                  : (me?.stats.todayTryOns ?? 0)}
               </div>
-              <div className="av-sub">{me?.stats.capturedEmailCount ?? 0} emails collected</div>
-              {me?.stats.storeDailyCap != null &&
-                me.stats.todayTryOns >= me.stats.storeDailyCap && (
-                  <div className="av-sub" style={{ color: '#7a5200', fontWeight: 600 }}>
-                    Daily limit reached. Try-on is paused until tomorrow.
-                  </div>
-                )}
-            </AvCard>
-            <AvCard>
-              <div className="av-k">Sync status</div>
-              <ul className="av-rows">
-                {(['active', 'processing', 'failed', 'disabled'] as const).map((key) => (
-                  <li key={key}>
-                    <span>{STATUS_LABEL[key]}</span>
-                    <span className={`av-chip ${STATUS_CHIP[key]}`}>
-                      {String(me?.stats.statusCounts[key] ?? 0)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </AvCard>
+              <button type="button" className="av-btn-primary" onClick={() => navigate('/pricing')}>
+                Buy Credits
+              </button>
+            </section>
+            <Kpi
+              icon={
+                <Glyph size={22}>
+                  <path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" />
+                  <path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" />
+                </Glyph>
+              }
+              label="Products Synced"
+              value={String(stats?.syncedProductCount ?? 0)}
+              note="Products in your store"
+            />
           </div>
 
-          <InlineStack align="space-between" blockAlign="center">
-            <Button variant="plain" onClick={() => navigate('/manage')}>
-              Manage Products
-            </Button>
-            {me?.store.connectedSince && (
-              <Text as="span" tone="subdued">
-                Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
-              </Text>
+          <div className="av2-perf-head">
+            <div>
+              <h2 className="av-h2">Performance</h2>
+              <p className="av-sub">Activity in the selected period.</p>
+            </div>
+            <div className="av2-range">
+              <span className="av2-range-icon" aria-hidden>
+                <Glyph size={20}>
+                  <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+                  <path d="M3.5 10h17M8 3v4M16 3v4" />
+                </Glyph>
+              </span>
+              <Select
+                label="Date range"
+                labelHidden
+                options={ANALYTICS_PRESETS.map((p) => ({ label: p.label, value: p.id }))}
+                value={preset}
+                onChange={(v) => setPreset(v as AnalyticsPreset)}
+              />
+            </div>
+          </div>
+
+          <div className="av2-kpis av2-perf">
+            <Kpi
+              big
+              icon={
+                <Glyph size={30}>
+                  <path d="M5 8h14l-1 12H6L5 8z" />
+                  <path d="M9 8V6a3 3 0 0 1 6 0v2" />
+                </Glyph>
+              }
+              label="Total Try-Ons"
+              value={String(cards?.tryOns ?? stats?.totalTryOns ?? 0)}
+            />
+            <Kpi
+              big
+              icon={
+                <Glyph size={30}>
+                  <circle cx="9" cy="8" r="3.5" />
+                  <path d="M2.5 20c0-3.5 2.9-6 6.5-6s6.5 2.5 6.5 6" />
+                  <path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.3c2 .6 3.5 2.6 3.5 5.7" />
+                </Glyph>
+              }
+              label="Unique Shoppers"
+              value={String(cards?.uniqueShoppers ?? 0)}
+            />
+            <Kpi
+              big
+              icon={
+                <Glyph size={30}>
+                  <path d="M2.5 3.5h3l2.2 11h10.6l2-8H6.5" />
+                  <circle cx="9" cy="19.5" r="1.5" />
+                  <circle cx="17" cy="19.5" r="1.5" />
+                </Glyph>
+              }
+              label="Added to Cart"
+              value={String(cards?.addedToCart ?? 0)}
+            />
+            <Kpi
+              big
+              icon={
+                <Glyph size={30}>
+                  <rect x="3" y="5" width="18" height="14" rx="3" />
+                  <path d="M4 7.5l8 5.5 8-5.5" />
+                </Glyph>
+              }
+              label="Contacts Captured"
+              value={String(cards?.emailsCaptured ?? 0)}
+            />
+            {/* Never "Conversion rate" -- a merchant reads that as purchased. */}
+            <Kpi
+              big
+              icon={
+                <Glyph size={30}>
+                  <path d="M3 17l5-5 4 4 8-9" />
+                  <path d="M15 7h5v5" />
+                </Glyph>
+              }
+              label="Add-to-Cart Rate"
+              value={pct(cards?.addToCartRate ?? 0)}
+            />
+            {/* Orders paid within 7 days of a completed try-on of the same product. */}
+            <Kpi
+              big
+              icon={
+                <Glyph size={30}>
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M14.5 9h-4a1.8 1.8 0 0 0 0 3.6h3a1.8 1.8 0 0 1 0 3.6h-4M12 7v10" />
+                </Glyph>
+              }
+              label="Try-On Revenue"
+              value={money(cards?.revenue ?? [])}
+            />
+          </div>
+
+          {cards && cards.turnedAway.total > 0 && (
+            <AvCard>
+              <div className="av-k">Turned away</div>
+              <div className="av-big">{cards.turnedAway.total}</div>
+              <div className="av-sub">
+                Shoppers who hit a limit · store cap {cards.turnedAway.storeCap} · per-shopper cap{' '}
+                {cards.turnedAway.shopperCap}
+              </div>
+            </AvCard>
+          )}
+
+          {analytics && (
+            <div className="av2-charts">
+              <AvCard>
+                <BlockStack gap="300">
+                  <h2 className="av-h2">Try-ons per day</h2>
+                  <BarChart
+                    orientation="vertical"
+                    data={analytics.daily.map((d) => ({ label: d.day, value: d.tryOns }))}
+                  />
+                  <ChartTable
+                    id="daily-table"
+                    columns={['Day', 'Try-ons']}
+                    rows={analytics.daily.map((d) => ({ label: d.day, value: String(d.tryOns) }))}
+                  />
+                </BlockStack>
+              </AvCard>
+              <AvCard>
+                <BlockStack gap="300">
+                  <h2 className="av-h2">Shopper journey</h2>
+                  <BarChart
+                    orientation="horizontal"
+                    data={[
+                      { label: 'Clicked try-on', value: analytics.funnel.buttonClick },
+                      { label: 'Uploaded a photo', value: analytics.funnel.upload },
+                      { label: 'Generated a try-on', value: analytics.funnel.tryOn },
+                      { label: 'Viewed the result', value: analytics.funnel.resultView },
+                      { label: 'Added to cart', value: analytics.funnel.addToCart },
+                    ]}
+                  />
+                  <Text as="p" tone="subdued" variant="bodySm">
+                    Steps 1, 2, 4 and 5 are measured in the shopper&apos;s browser and can be
+                    blocked. Try-ons are measured on our servers and are exact — so a later step can
+                    show more shoppers than an earlier one.
+                  </Text>
+                  {analytics.funnel.unattributed > 0 && (
+                    <Text as="p" tone="subdued" variant="bodySm">
+                      {`${analytics.funnel.unattributed} try-ons came from an older widget version and could not be matched to a shopper, so they are not in this chart.`}
+                    </Text>
+                  )}
+                  <ChartTable
+                    id="funnel-table"
+                    columns={['Step', 'Shoppers']}
+                    rows={[
+                      { label: 'Clicked try-on', value: String(analytics.funnel.buttonClick) },
+                      { label: 'Uploaded a photo', value: String(analytics.funnel.upload) },
+                      { label: 'Generated a try-on', value: String(analytics.funnel.tryOn) },
+                      { label: 'Viewed the result', value: String(analytics.funnel.resultView) },
+                      { label: 'Added to cart', value: String(analytics.funnel.addToCart) },
+                    ]}
+                  />
+                </BlockStack>
+              </AvCard>
+            </div>
+          )}
+
+          <AvCard>
+            <SectionHead
+              icon={
+                <Glyph size={24}>
+                  <path d="M3 12V4h8l10 10-8 8L3 12z" />
+                  <circle cx="7.5" cy="8.5" r="1.4" />
+                </Glyph>
+              }
+              title="Product Performance"
+              subtitle="See which products drive the most engagement and conversions."
+            >
+              <div className="av2-tool-search wide">
+                <TextField
+                  label="Search products"
+                  labelHidden
+                  type="search"
+                  prefix={searchIcon}
+                  placeholder="Search products"
+                  value={productQuery}
+                  onChange={(v) => {
+                    setProductQuery(v);
+                    setProductPage(0);
+                  }}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="av2-tool-select wide">
+                <Select
+                  label="Sort products"
+                  labelHidden
+                  options={[
+                    { label: 'Sort by: Try-Ons', value: 'tryOns' },
+                    { label: 'Sort by: Shoppers', value: 'shoppers' },
+                    { label: 'Sort by: Add-to-Cart Rate', value: 'rate' },
+                  ]}
+                  value={productSort}
+                  onChange={(v) => setProductSort(v as ProductSort)}
+                />
+              </div>
+            </SectionHead>
+            <div className="av2-scroll">
+              <table className="av2-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Product</th>
+                    <th scope="col">Try-Ons</th>
+                    <th scope="col">Shoppers</th>
+                    <th scope="col">Added to Cart</th>
+                    <th scope="col">Add-to-Cart Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productRows.map((p) => (
+                    <tr key={p.shopifyProductId}>
+                      <td>{p.title ?? `#${p.shopifyProductId}`}</td>
+                      <td>{p.tryOns}</td>
+                      <td>{p.uniqueShoppers}</td>
+                      <td>{p.addedToCart}</td>
+                      <td>{pct(p.addToCartRate)}</td>
+                    </tr>
+                  ))}
+                  {productRows.length === 0 && (
+                    <tr>
+                      <td colSpan={5}>No products match.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pager
+              page={productPage}
+              pages={productPages}
+              total={products.length}
+              noun="products"
+              onPage={setProductPage}
+            />
+          </AvCard>
+
+          <AvCard>
+            <SectionHead
+              icon={
+                <Glyph size={24}>
+                  <circle cx="9" cy="8" r="3.5" />
+                  <path d="M2.5 20c0-3.5 2.9-6 6.5-6s6.5 2.5 6.5 6" />
+                  <path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.3c2 .6 3.5 2.6 3.5 5.7" />
+                </Glyph>
+              }
+              title="Collected Contacts"
+              subtitle="Shoppers who signed in to try on."
+            >
+              <div className="av2-tool-search">
+                <TextField
+                  label="Search contacts"
+                  labelHidden
+                  type="search"
+                  prefix={searchIcon}
+                  placeholder="Search contacts"
+                  value={contactQuery}
+                  onChange={(v) => {
+                    setContactQuery(v);
+                    setContactPage(0);
+                  }}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="av2-tool-select">
+                <Select
+                  label="Sort contacts"
+                  labelHidden
+                  options={[
+                    { label: 'Sort: First seen', value: 'firstSeen' },
+                    { label: 'Sort: Try-ons', value: 'tryOns' },
+                  ]}
+                  value={contactSort}
+                  onChange={(v) => setContactSort(v as ContactSort)}
+                />
+              </div>
+              <button
+                type="button"
+                className="av-btn-ghost"
+                onClick={exportCsv}
+                disabled={exporting || !shoppers || shoppers.length === 0}
+                aria-busy={exporting || undefined}
+              >
+                Export CSV
+              </button>
+            </SectionHead>
+            {shoppers && shoppers.length === 0 ? (
+              <div className="av-empty" style={{ marginTop: 16 }}>
+                <b>No contacts collected yet</b>
+                <span>Turn on "Require login" under Settings → Limits to start collecting.</span>
+              </div>
+            ) : (
+              <div className="av2-scroll">
+                <table className="av2-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Email</th>
+                      <th scope="col">First Seen</th>
+                      <th scope="col">Try-Ons</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {contactRows.map((s) => (
+                      <tr key={s.id}>
+                        <td>{s.email}</td>
+                        <td>{new Date(s.firstSeenAt).toLocaleDateString()}</td>
+                        <td>{s.tryOnCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
-          </InlineStack>
+            <Pager
+              page={contactPage}
+              pages={contactPages}
+              total={contacts.length}
+              noun="contacts"
+              onPage={setContactPage}
+            />
+          </AvCard>
+
+          {me?.store.connectedSince && (
+            <Text as="span" tone="subdued">
+              Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
+            </Text>
+          )}
         </BlockStack>
         {toastMessage && <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} />}
       </AppPage>
