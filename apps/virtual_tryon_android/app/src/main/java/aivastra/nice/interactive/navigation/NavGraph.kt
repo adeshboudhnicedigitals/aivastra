@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.ui.components.AppLoadingIndicator
+import aivastra.nice.interactive.ui.components.ExitSessionDialog
 import aivastra.nice.interactive.utils.sdp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -296,6 +297,9 @@ fun AppNavGraph(
                 },
                 onQuickTryOnClick = {
                     quickTryOn = true
+                    // A new quick session: results accumulate across photos from here until Home.
+                    sessionTryOnResults.clear()
+                    sessionTryOnJobIds.clear()
                     navController.navigate(Screen.PhotoUpload.route)
                 },
                 onReportsClick = {
@@ -539,8 +543,11 @@ fun AppNavGraph(
                     // try-on results still held from a previous photo must not leak into this
                     // person's Download page. (No-op if there's nothing to clear yet, e.g. a
                     // retake before any try-on completed.)
-                    sessionTryOnResults.clear()
-                    sessionTryOnJobIds.clear()
+                    // Quick try-on keeps its results so the result page can page through all of them.
+                    if (!quickTryOn) {
+                        sessionTryOnResults.clear()
+                        sessionTryOnJobIds.clear()
+                    }
                     tryOnViewModel.resetState()
                     capturedPhotoUri = photoUri
                     customerPhotoR2Key = r2Key
@@ -700,6 +707,9 @@ fun AppNavGraph(
             enterTransition = { EnterTransition.None },
             exitTransition = { ExitTransition.None }
         ) { entry ->
+            // Quick try-on: back (gesture or arrow) asks what to do with the session instead of
+            // silently leaving it, like the regular flow's session exit dialog.
+            var showQuickExit by remember { mutableStateOf(false) }
             tryOnUiState.shareUrl?.let { url ->
                 // Quick try-on has no outfit to swap, so leaving the result (back or
                 // "Try More") reopens the camera for a fresh photo; PhotoUpload's
@@ -715,8 +725,9 @@ fun AppNavGraph(
                 }
                 TryOnResultPage(
                     resultImageUrl = url,
+                    sessionResults = if (quickTryOn) sessionTryOnResults else emptyList(),
                     tryAnotherLabel = if (quickTryOn) "Try More" else "Try Another",
-                    onBack = if (quickTryOn) reopenCamera else {
+                    onBack = if (quickTryOn) ({ showQuickExit = true }) else {
                         {
                             hasEnteredTryMoreFlow = true
                             val now = android.os.SystemClock.uptimeMillis()
@@ -744,6 +755,27 @@ fun AppNavGraph(
                         navController.navigate(Screen.Download.route)
                     }
                 )
+                if (showQuickExit) {
+                    ExitSessionDialog(
+                        onGoHome = {
+                            showQuickExit = false
+                            quickTryOn = false
+                            hasEnteredTryMoreFlow = false
+                            sessionTryOnResults.clear()
+                            sessionTryOnJobIds.clear()
+                            tryOnViewModel.resetState()
+                            navController.navigate(Screen.CategorySelection.route) {
+                                popUpTo(Screen.CategorySelection.route) { inclusive = true }
+                            }
+                        },
+                        onGoToDownloads = {
+                            showQuickExit = false
+                            navController.navigate(Screen.Download.route)
+                        },
+                        onRetake = null,
+                        onDismiss = { showQuickExit = false }
+                    )
+                }
             } ?: Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                 LaunchedEffect(Unit) {
                     if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {

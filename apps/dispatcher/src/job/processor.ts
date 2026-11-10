@@ -3576,9 +3576,13 @@ async function processWidgetJob(
     return;
   }
 
-  const garmentNodeId = templateRow.tryonGarmentNodeId;
+  // Quick try-on templates uploaded before the admin route stored the photo input in the person
+  // column kept it in the garment column; read it from there so those rows still run.
+  const legacyQuickPhotoNode = isQuickTryon ? templateRow.tryonGarmentNodeId : null;
+  const garmentNodeId =
+    legacyQuickPhotoNode && !templateRow.tryonPersonNodeId ? null : templateRow.tryonGarmentNodeId;
   const garmentNodeId2 = templateRow.tryonGarmentNodeId2;
-  const customerPhotoNodeId = templateRow.tryonPersonNodeId;
+  const customerPhotoNodeId = templateRow.tryonPersonNodeId ?? legacyQuickPhotoNode;
   const outputNodeId = templateRow.tryonOutputNodeId;
 
   if ((!isQuickTryon && !garmentNodeId) || !customerPhotoNodeId || !outputNodeId) {
