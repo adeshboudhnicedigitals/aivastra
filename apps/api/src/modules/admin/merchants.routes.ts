@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
+import { assertUserIsNotStaff } from '../merchant/staff-guard.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
 import { recordAudit } from './audit.js';
 import { requirePermission } from './guard.js';
@@ -27,6 +28,9 @@ function auditMerchantSnapshot(row: {
   logoKey?: string | null;
   logoOverlayEnabled?: boolean;
   loadingVideoKey?: string | null;
+  staffLimitPerBranch?: number;
+  deviceQuotaPerMonth?: number | null;
+  storeUrl?: string | null;
 }) {
   return {
     companyName: row.companyName,
@@ -41,6 +45,9 @@ function auditMerchantSnapshot(row: {
     logoKey: row.logoKey,
     logoOverlayEnabled: row.logoOverlayEnabled,
     loadingVideoKey: row.loadingVideoKey,
+    staffLimitPerBranch: row.staffLimitPerBranch,
+    deviceQuotaPerMonth: row.deviceQuotaPerMonth,
+    storeUrl: row.storeUrl,
   };
 }
 
@@ -191,6 +198,8 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           }));
         }
 
+        await assertUserIsNotStaff(tx, user.id);
+
         const [alreadyMerchant] = await tx
           .select({ id: schema.merchants.id })
           .from(schema.merchants)
@@ -270,6 +279,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           creditBalance: schema.userCredits.balance,
           emailVerified: schema.users.emailVerified,
           displayName: schema.users.displayName,
+          staffLimitPerBranch: schema.merchants.staffLimitPerBranch,
+          deviceQuotaPerMonth: schema.merchants.deviceQuotaPerMonth,
+          storeUrl: schema.merchants.storeUrl,
         })
         .from(schema.merchants)
         .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
@@ -352,6 +364,15 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       if (body.loadingVideoKey !== undefined) {
         updates.loadingVideoKey = body.loadingVideoKey;
       }
+      if (body.staffLimitPerBranch !== undefined) {
+        // Lowering the limit below a branch's current active staff is allowed: existing
+        // staff keep working, and new creates/activations are refused until the count
+        // drops. Silently deactivating someone's login here would be worse.
+        updates.staffLimitPerBranch = body.staffLimitPerBranch;
+      }
+      if (body.deviceQuotaPerMonth !== undefined)
+        updates.deviceQuotaPerMonth = body.deviceQuotaPerMonth;
+      if (body.storeUrl !== undefined) updates.storeUrl = body.storeUrl;
 
       const updated = await app.db.transaction(async (tx) => {
         const [existing] = await tx

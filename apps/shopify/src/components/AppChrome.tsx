@@ -14,7 +14,7 @@ import { BrandHeader } from './BrandHeader';
  */
 // Pages laid out to fit one screen (no page scroll). Manage's long lists scroll
 // inside their own card instead.
-const FIT_PATHS = ['/', '/manage', '/pricing', '/settings'];
+const FIT_PATHS = ['/', '/manage', '/pricing'];
 
 export function AppChrome({ me, showNav }: { me: ShopifyMe; showNav: boolean }) {
   const location = useLocation();

@@ -520,6 +520,9 @@ function extractWorkflowInsertFields(body: z.infer<typeof CreateWorkflowBody>) {
       stage1NegativePromptNode: null,
       defaultStage1PositivePrompt: '',
       defaultStage1NegativePrompt: '',
+      // quick_tryon's input is the person photo and the dispatcher's widget path requires
+      // tryonPersonNodeId — storing it in the garment column made every quick try-on fail
+      // TRYON_NODES_NOT_CONFIGURED. garment_extract keeps the garment column.
       tryonPersonNodeId: inputIsPerson ? inputNodeId : null,
       tryonGarmentNodeId: inputIsPerson ? null : inputNodeId,
       tryonGarmentNodeId2: null,

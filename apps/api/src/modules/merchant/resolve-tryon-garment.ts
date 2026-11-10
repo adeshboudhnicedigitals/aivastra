@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 
@@ -78,7 +78,14 @@ export async function resolveTryonGarment(
       schema.workflowTemplates,
       eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
     )
-    .where(eq(schema.merchantCatalogItems.id, itemId))
+    // A staff soft-deleted item is gone for try-on: it falls through to the demo lookup,
+    // which cannot match a merchant row's id, so the caller gets the same 404.
+    .where(
+      and(
+        eq(schema.merchantCatalogItems.id, itemId),
+        isNull(schema.merchantCatalogItems.deletedAt),
+      ),
+    )
     .limit(1);
 
   if (own) {
@@ -213,6 +220,55 @@ export async function resolveTryonGarment(
     workflowTemplateVersion: demo.workflowTemplateVersion,
     isDemo: true,
   };
+}
+
+/**
+ * Ownership-only form of resolveTryonGarment's lookup, for callers that record a catalog
+ * item without running a try-on (in-store wishlist / sale). Same rule: the merchant's own
+ * row, or an admin demo item in a set assigned to a demo-data merchant. Deliberately
+ * ignores active/moderation/workflow state: those gate generating a try-on, not
+ * remembering what a customer liked or bought.
+ */
+export async function merchantCanReferenceCatalogItem(
+  app: FastifyInstance,
+  merchantId: string,
+  itemId: string,
+): Promise<boolean> {
+  const [own] = await app.db
+    .select({ id: schema.merchantCatalogItems.id })
+    .from(schema.merchantCatalogItems)
+    .where(
+      and(
+        eq(schema.merchantCatalogItems.id, itemId),
+        eq(schema.merchantCatalogItems.merchantId, merchantId),
+        // Soft-deleted items cannot be newly wishlisted or sold; past session items keep
+        // their id (no FK), so reports of earlier activity are unaffected.
+        isNull(schema.merchantCatalogItems.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (own) return true;
+  const [demo] = await app.db
+    .select({ id: schema.demoCatalogItems.id })
+    .from(schema.demoCatalogItems)
+    .innerJoin(
+      schema.demoCatalogSubcategories,
+      eq(schema.demoCatalogSubcategories.id, schema.demoCatalogItems.subcategoryId),
+    )
+    .innerJoin(
+      schema.demoCatalogAssignments,
+      and(
+        eq(schema.demoCatalogAssignments.setId, schema.demoCatalogSubcategories.setId),
+        eq(schema.demoCatalogAssignments.merchantId, merchantId),
+      ),
+    )
+    .innerJoin(
+      schema.merchants,
+      and(eq(schema.merchants.id, merchantId), eq(schema.merchants.demoData, true)),
+    )
+    .where(eq(schema.demoCatalogItems.id, itemId))
+    .limit(1);
+  return Boolean(demo);
 }
 
 function assertWorkflow(row: {

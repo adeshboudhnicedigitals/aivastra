@@ -29,10 +29,17 @@ export const fleetAgentLatestKey = (workerId: string) => `fleet:latest:${workerI
 export const fleetAgentRejectsKey = (workerId: string) => `fleet:rejects:${workerId}`;
 
 // Display text, not an identifier: no control characters, bounded length.
-const hasNoControlChars = (s: string) =>
-  ![...s].some((c) => (c.codePointAt(0) ?? 0) < 0x20 || c === '\x7f');
+const isControlChar = (c: string) => (c.codePointAt(0) ?? 0) < 0x20 || c === '\x7f';
+const hasNoControlChars = (s: string) => ![...s].some(isControlChar);
+// Length in code points, the way the Python agent's `line[:N]` counts. zod's .max() counts UTF-16
+// units, where one emoji is 2: an agent line cut to 300 then failed at 308, and that one log line
+// rejected the whole sample (w1, 2026-11-09).
 const text = (max: number) =>
-  z.string().min(1).max(max).refine(hasNoControlChars, 'must not contain control characters');
+  z
+    .string()
+    .min(1)
+    .refine((s) => [...s].length <= max, `must be at most ${max} characters`)
+    .refine(hasNoControlChars, 'must not contain control characters');
 const logicalName = z.string().regex(/^[a-z0-9._-]{1,32}$/);
 
 const num = (min: number, max: number) => z.number().finite().min(min).max(max).nullable();
@@ -113,10 +120,31 @@ export const agentComfySchema = z
 
 // Error lines the agent picked out of a service's journal. Only lines that look like errors, capped
 // in count and length, so this is a pointer to "something failed", not a log archive.
+// Log text is the least important part of a sample, so a bad line is cleaned rather than allowed to
+// reject the GPU/disk/service data around it: control characters become spaces, long lines are cut,
+// empty and non-string lines are dropped, and only the newest 40 are kept.
+const LOG_LINE_MAX = 300;
+const LOG_LINES_MAX = 40;
+const cleanLogLine = (raw: unknown) => {
+  if (typeof raw !== 'string') return null;
+  const chars = [...raw].map((c) => (isControlChar(c) ? ' ' : c));
+  const line = chars.join('').trim();
+  return line ? [...line].slice(0, LOG_LINE_MAX).join('') : null;
+};
+const logLines = z.preprocess(
+  (v) =>
+    Array.isArray(v)
+      ? v
+          .map(cleanLogLine)
+          .filter((l): l is string => l !== null)
+          .slice(-LOG_LINES_MAX)
+      : v,
+  z.array(text(LOG_LINE_MAX)).max(LOG_LINES_MAX),
+);
 export const agentLogSchema = z
   .object({
     unit: logicalName,
-    lines: z.array(text(300)).max(40),
+    lines: logLines,
   })
   .strict();
 

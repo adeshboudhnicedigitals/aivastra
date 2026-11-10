@@ -358,6 +358,12 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         },
         app,
       );
+      // publishConv only reaches a tab that currently has this conversation open
+      // (join/leave is per-conversation) — without this, any other agent's open
+      // queue list never finds out this ticket left IN_PROGRESS and keeps
+      // showing it as still answered-but-open until something unrelated (a
+      // claim, a reconnect) happens to trigger their next load().
+      await publishQueue(app);
       return row;
     },
   );
@@ -397,6 +403,9 @@ export async function adminChatbotRoutes(app: FastifyInstance) {
         { type: 'state_change', conversationId: id, status: 'RESOLVED', reason: null },
         app,
       );
+      // See the matching comment in /end — publishConv alone leaves every other
+      // agent's open queue list unaware this ticket left IN_PROGRESS.
+      await publishQueue(app);
       return row;
     },
   );

@@ -90,7 +90,7 @@
       }
     },
     {
-      "includes": ["apps/catalogues-web/**"],
+      "includes": ["apps/catalogues-web/**", "apps/merchant-web/src/app/(app)/catalogue/**"],
       "linter": {
         "rules": {
           "a11y": {

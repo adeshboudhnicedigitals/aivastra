@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { schema } from '@aivastra/db';
+import { type DbTransaction, schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   MerchantCatalogCreateBody,
@@ -11,17 +11,127 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, or, type SQL, sql } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import { and, count, desc, eq, ilike, inArray, isNull, like, or, type SQL, sql } from 'drizzle-orm';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
+import { recordAudit } from '../admin/audit.js';
+import {
+  type CatalogJobStaff,
+  createMerchantCatalogJob,
+  createMerchantSareeMannequinJob,
+} from './create-job.js';
 import { IncludeDemoQuery, loadDemoItems, loadDemoSubcategories } from './demo-catalog-read.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
 
-async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogRow) {
+// Audit actor role for catalogue writes made by a merchant STAFF member from Merchant Web.
+// Owner writes are deliberately not audited here: adding a fail-closed audit to the legacy
+// owner path would be a behaviour change (spec 3b, Audit).
+const MERCHANT_STAFF_ACTOR_ROLE = 'MERCHANT_STAFF';
+
+interface StaffCaller {
+  userId: string;
+  staffId: string;
+  branchId: string;
+}
+
+/**
+ * The staff member behind a requireMerchantTeam request, or null for the owner (and for
+ * every route still on requireMerchant). Every staff-only behaviour below — soft delete,
+ * audit, updated_by_staff_id, job attribution — branches on this, so the owner path keeps
+ * running the exact legacy code.
+ */
+function staffOf(req: FastifyRequest): StaffCaller | null {
+  const m = req.merchantMember;
+  if (m?.role !== 'staff' || !m.staffId || !m.branchId) return null;
+  return { userId: m.userId, staffId: m.staffId, branchId: m.branchId };
+}
+
+function staffAuditActor(staff: StaffCaller) {
+  return { userId: staff.userId, role: MERCHANT_STAFF_ACTOR_ROLE };
+}
+
+// Generate jobs started by staff carry branch/staff and audit inside the job transaction.
+function catalogJobStaff(
+  req: FastifyRequest,
+  staff: StaffCaller | null,
+): CatalogJobStaff | undefined {
+  if (!staff) return undefined;
+  return {
+    branchId: staff.branchId,
+    staffId: staff.staffId,
+    audit: (tx, jobId) =>
+      recordAudit(tx, {
+        actor: staffAuditActor(staff),
+        action: 'merchant_catalog.generate',
+        resourceType: 'job',
+        resourceId: jobId,
+        request: req,
+      }),
+  };
+}
+
+/**
+ * Staff presign guard: a client-supplied assetId must not name the storage directory of an
+ * item that already exists (live or staff soft-deleted), or a staff member could PUT new
+ * bytes over that product's images without any DB write or audit row. A fresh assetId is
+ * still valid for every kind — the UI presigns image, thumbnail and flat under one new
+ * assetId before the item row exists.
+ */
+async function assetIdInUse(app: FastifyInstance, merchantId: string, assetId: string) {
+  const prefixes = [
+    keys.merchantCatalogItem(merchantId, assetId).replace(/image\.jpg$/, ''),
+    keys.merchantCatalogFlatGarment(merchantId, assetId).replace(/garment\.jpg$/, ''),
+  ];
+  const c = schema.merchantCatalogItems;
+  const columns = [c.r2Key, c.thumbnailKey, c.secondR2Key, c.secondThumbnailKey, c.flatSourceKey];
+  // merchantId and assetId are validated UUIDs, so the prefixes hold no LIKE wildcards.
+  const [row] = await app.db
+    .select({ id: c.id })
+    .from(c)
+    .where(
+      and(
+        eq(c.merchantId, merchantId),
+        or(...prefixes.flatMap((prefix) => columns.map((col) => like(col, `${prefix}%`)))),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
+ * Staff create guard: keys already referenced by any item row (deleted or not) cannot be
+ * attached to a new item. Otherwise a staff-created copy could later be owner hard-deleted
+ * and take the soft-deleted original's objects with it.
+ */
+async function keysInUse(app: FastifyInstance, candidateKeys: string[]) {
+  const c = schema.merchantCatalogItems;
+  const [row] = await app.db
+    .select({ id: c.id })
+    .from(c)
+    .where(
+      or(
+        inArray(c.r2Key, candidateKeys),
+        inArray(c.thumbnailKey, candidateKeys),
+        inArray(c.secondR2Key, candidateKeys),
+        inArray(c.secondThumbnailKey, candidateKeys),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+async function serializeCatalogItem(app: FastifyInstance, fullItem: MerchantCatalogRow) {
+  // The soft-delete columns are internal: legacy clients (incl. the Android app) keep seeing
+  // exactly the response shape they had before those columns existed.
+  const {
+    deletedAt: _deletedAt,
+    deletedByStaffId: _deletedByStaffId,
+    updatedByStaffId: _updatedByStaffId,
+    ...item
+  } = fullItem;
   const [imageUrl, thumbnailUrl, secondImageUrl, mannequinResultUrl] = await Promise.all([
     app.storage
       .presignGet(item.r2Key, 3600)
@@ -95,6 +205,8 @@ async function copyJobOutputIntoProduct(
     // SKU or a price, and the kiosk query filters on isActive. Defaults true so
     // the interactive /import path is unchanged.
     isActive?: boolean;
+    // Staff /import only: written in the same transaction as the product row.
+    audit?: (tx: DbTransaction, item: MerchantCatalogRow) => Promise<void>;
   },
 ): Promise<MerchantCatalogRow> {
   const sourceThumbKey = params.thumbnailKey ?? params.resultKey;
@@ -120,24 +232,30 @@ async function copyJobOutputIntoProduct(
     app.storage.putObject(thumbKey, thumbBody, thumbHead.contentType ?? 'image/jpeg'),
   ]);
 
+  const values = {
+    id: assetId,
+    merchantId: params.merchantId,
+    subcategoryId: params.subcategoryId,
+    label: params.label ?? catalogueLabel(params.job.catalogueId, params.job.id),
+    actualPricePaise: 0,
+    offerPricePaise: 0,
+    r2Key: imageKey,
+    thumbnailKey: thumbKey,
+    sourceJobId: params.job.id,
+    sourceKind: params.sourceKind,
+    flatSourceKey: params.flatSourceKey ?? null,
+    isActive: params.isActive ?? true,
+  };
+  const audit = params.audit;
   try {
-    const [item] = await app.db
-      .insert(schema.merchantCatalogItems)
-      .values({
-        id: assetId,
-        merchantId: params.merchantId,
-        subcategoryId: params.subcategoryId,
-        label: params.label ?? catalogueLabel(params.job.catalogueId, params.job.id),
-        actualPricePaise: 0,
-        offerPricePaise: 0,
-        r2Key: imageKey,
-        thumbnailKey: thumbKey,
-        sourceJobId: params.job.id,
-        sourceKind: params.sourceKind,
-        flatSourceKey: params.flatSourceKey ?? null,
-        isActive: params.isActive ?? true,
-      })
-      .returning();
+    if (audit) {
+      return await app.db.transaction(async (tx) => {
+        const [item] = await tx.insert(schema.merchantCatalogItems).values(values).returning();
+        await audit(tx, item);
+        return item;
+      });
+    }
+    const [item] = await app.db.insert(schema.merchantCatalogItems).values(values).returning();
     return item;
   } catch (err) {
     await Promise.allSettled([
@@ -164,7 +282,12 @@ async function serializeSubcategory(
   const [{ n }] = await app.db
     .select({ n: count() })
     .from(schema.merchantCatalogItems)
-    .where(eq(schema.merchantCatalogItems.subcategoryId, row.id));
+    .where(
+      and(
+        eq(schema.merchantCatalogItems.subcategoryId, row.id),
+        isNull(schema.merchantCatalogItems.deletedAt),
+      ),
+    );
   // Mirrors the existing per-row productCount lookup above — same N+1-per-row shape this
   // function already has, not a new performance concern for a merchant's subcategory list
   // (bounded by how many subcategories one merchant creates, never paginated at scale).
@@ -200,7 +323,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/merchant/catalog/subcategories',
     {
-      preHandler: app.requireMerchant,
+      preHandler: app.requireMerchantTeam,
       schema: {
         querystring: z.object({ category: z.string().optional(), includeDemo: IncludeDemoQuery }),
       },
@@ -345,7 +468,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/v1/merchant/catalog/subcategories',
-    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogSubcategoryCreateBody } },
+    { preHandler: app.requireMerchantTeam, schema: { body: MerchantCatalogSubcategoryCreateBody } },
     async (req, reply) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
@@ -364,15 +487,30 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       if (!garmentType)
         throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
 
-      const [row] = await app.db
-        .insert(schema.merchantCatalogSubcategories)
-        .values({
-          merchantId,
-          category: body.category,
-          name: body.name,
-          garmentSubcategoryId: body.garmentSubcategoryId,
-        })
-        .returning();
+      const values = {
+        merchantId,
+        category: body.category,
+        name: body.name,
+        garmentSubcategoryId: body.garmentSubcategoryId,
+      };
+      const staff = staffOf(req);
+      const [row] = staff
+        ? await app.db.transaction(async (tx) => {
+            const rows = await tx
+              .insert(schema.merchantCatalogSubcategories)
+              .values(values)
+              .returning();
+            await recordAudit(tx, {
+              actor: staffAuditActor(staff),
+              action: 'merchant_catalog_subcategory.create',
+              resourceType: 'merchant_catalog_subcategory',
+              resourceId: rows[0].id,
+              after: rows[0],
+              request: req,
+            });
+            return rows;
+          })
+        : await app.db.insert(schema.merchantCatalogSubcategories).values(values).returning();
 
       reply.code(201);
       return await serializeSubcategory(app, row);
@@ -382,7 +520,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.patch(
     '/v1/merchant/catalog/subcategories/:id',
     {
-      preHandler: app.requireMerchant,
+      preHandler: app.requireMerchantTeam,
       schema: {
         params: z.object({ id: z.string().uuid() }),
         body: MerchantCatalogSubcategoryUpdateBody,
@@ -410,29 +548,57 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
       }
 
-      const [updated] = await app.db
-        .update(schema.merchantCatalogSubcategories)
-        .set({
-          ...(body.name !== undefined ? { name: body.name } : {}),
-          ...(body.garmentSubcategoryId !== undefined
-            ? { garmentSubcategoryId: body.garmentSubcategoryId }
-            : {}),
-          ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(schema.merchantCatalogSubcategories.id, id),
-            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
-          ),
-        )
-        .returning();
+      const set = {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.garmentSubcategoryId !== undefined
+          ? { garmentSubcategoryId: body.garmentSubcategoryId }
+          : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+        updatedAt: new Date(),
+      };
+      const where = and(
+        eq(schema.merchantCatalogSubcategories.id, id),
+        eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+      );
+      const staff = staffOf(req);
+      const [updated] = staff
+        ? await app.db.transaction(async (tx) => {
+            const [before] = await tx
+              .select()
+              .from(schema.merchantCatalogSubcategories)
+              .where(where)
+              .limit(1);
+            const rows = await tx
+              .update(schema.merchantCatalogSubcategories)
+              .set(set)
+              .where(where)
+              .returning();
+            if (!rows[0]) return rows;
+            await recordAudit(tx, {
+              actor: staffAuditActor(staff),
+              action: 'merchant_catalog_subcategory.update',
+              resourceType: 'merchant_catalog_subcategory',
+              resourceId: id,
+              before,
+              after: rows[0],
+              request: req,
+            });
+            return rows;
+          })
+        : await app.db
+            .update(schema.merchantCatalogSubcategories)
+            .set(set)
+            .where(where)
+            .returning();
 
       if (!updated) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
       return await serializeSubcategory(app, updated);
     },
   );
 
+  // Owner-only (controller ruling, 3b plan): this cascades into a hard delete of every
+  // product in the subcategory and its storage objects, which staff must not be able to do
+  // irreversibly. Staff get 403 from requireMerchant; Merchant Web hides the control.
   app.delete(
     '/v1/merchant/catalog/subcategories/:id',
     {
@@ -447,6 +613,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
       // Select children before the cascading delete so their R2 objects can be
       // cleaned up — the DB FK cascade removes the rows but knows nothing about R2.
+      // Deliberately no deleted_at filter: the cascade removes staff soft-deleted rows
+      // too, so their objects must be cleaned up with the rest.
       const children = await app.db
         .select({
           r2Key: schema.merchantCatalogItems.r2Key,
@@ -488,17 +656,16 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/v1/merchant/catalog/presign',
-    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogPresignBody } },
+    { preHandler: app.requireMerchantTeam, schema: { body: MerchantCatalogPresignBody } },
     async (req) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const {
-        assetId = randomUUID(),
-        kind,
-        contentLength,
-        contentType,
-      } = req.body as z.infer<typeof MerchantCatalogPresignBody>;
+      const body = req.body as z.infer<typeof MerchantCatalogPresignBody>;
+      if (body.assetId && staffOf(req) && (await assetIdInUse(app, merchantId, body.assetId))) {
+        throw new AppError('CONFLICT', 409, 'assetId already belongs to a catalog item');
+      }
+      const { assetId = randomUUID(), kind, contentLength, contentType } = body;
       const key =
         kind === 'thumbnail'
           ? keys.merchantCatalogItemThumb(merchantId, assetId)
@@ -516,7 +683,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/merchant/catalog',
     {
-      preHandler: app.requireMerchant,
+      preHandler: app.requireMerchantTeam,
       schema: {
         querystring: z.object({
           search: z.string().optional(),
@@ -536,6 +703,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       } = req.query as { search?: string; subcategoryId?: string; includeDemo: boolean };
       const conditions: (SQL | undefined)[] = [
         eq(schema.merchantCatalogItems.merchantId, merchantId),
+        isNull(schema.merchantCatalogItems.deletedAt),
       ];
       if (search.trim()) {
         const pattern = `%${search.trim()}%`;
@@ -568,7 +736,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/v1/merchant/catalog',
-    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogCreateBody } },
+    { preHandler: app.requireMerchantTeam, schema: { body: MerchantCatalogCreateBody } },
     async (req, reply) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
@@ -598,21 +766,45 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           : []),
       ]);
 
-      const [item] = await app.db
-        .insert(schema.merchantCatalogItems)
-        .values({
-          merchantId,
-          subcategoryId: body.subcategoryId,
-          label: body.label,
-          sku: body.sku?.trim() || null,
-          actualPricePaise: body.actualPrice * 100,
-          offerPricePaise: body.offerPrice * 100,
-          r2Key: body.r2Key,
-          thumbnailKey: body.thumbnailKey,
-          secondR2Key: body.secondR2Key ?? null,
-          secondThumbnailKey: body.secondThumbnailKey ?? null,
-        })
-        .returning();
+      const staff = staffOf(req);
+      if (staff) {
+        const candidateKeys = [
+          body.r2Key,
+          body.thumbnailKey,
+          ...(body.secondR2Key ? [body.secondR2Key] : []),
+          ...(body.secondThumbnailKey ? [body.secondThumbnailKey] : []),
+        ];
+        if (await keysInUse(app, candidateKeys)) {
+          throw new AppError('CONFLICT', 409, 'image keys already belong to a catalog item');
+        }
+      }
+
+      const values = {
+        merchantId,
+        subcategoryId: body.subcategoryId,
+        label: body.label,
+        sku: body.sku?.trim() || null,
+        actualPricePaise: body.actualPrice * 100,
+        offerPricePaise: body.offerPrice * 100,
+        r2Key: body.r2Key,
+        thumbnailKey: body.thumbnailKey,
+        secondR2Key: body.secondR2Key ?? null,
+        secondThumbnailKey: body.secondThumbnailKey ?? null,
+      };
+      const [item] = staff
+        ? await app.db.transaction(async (tx) => {
+            const rows = await tx.insert(schema.merchantCatalogItems).values(values).returning();
+            await recordAudit(tx, {
+              actor: staffAuditActor(staff),
+              action: 'merchant_catalog.create',
+              resourceType: 'merchant_catalog_item',
+              resourceId: rows[0].id,
+              after: rows[0],
+              request: req,
+            });
+            return rows;
+          })
+        : await app.db.insert(schema.merchantCatalogItems).values(values).returning();
 
       reply.code(201);
       return await serializeCatalogItem(app, item);
@@ -622,7 +814,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.patch(
     '/v1/merchant/catalog/:id',
     {
-      preHandler: app.requireMerchant,
+      preHandler: app.requireMerchantTeam,
       schema: {
         params: z.object({ id: z.string().uuid() }),
         body: MerchantCatalogUpdateBody,
@@ -649,15 +841,17 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         if (!subcategory) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
       }
 
+      // A soft-deleted item is gone for PATCH too (404), for staff and owner alike: only a
+      // staff delete creates such a row, and editing it must not quietly resurrect it.
+      const itemWhere = and(
+        eq(schema.merchantCatalogItems.id, id),
+        eq(schema.merchantCatalogItems.merchantId, merchantId),
+        isNull(schema.merchantCatalogItems.deletedAt),
+      );
       const [existing] = await app.db
         .select()
         .from(schema.merchantCatalogItems)
-        .where(
-          and(
-            eq(schema.merchantCatalogItems.id, id),
-            eq(schema.merchantCatalogItems.merchantId, merchantId),
-          ),
-        )
+        .where(itemWhere)
         .limit(1);
       if (!existing) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
 
@@ -674,26 +868,38 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         body.actualPrice !== undefined && body.actualPrice > 0 && body.offerPrice !== undefined;
       const autoActivate = isPendingHeldProduct && completesDetails && body.isActive === undefined;
 
-      const [updated] = await app.db
-        .update(schema.merchantCatalogItems)
-        .set({
-          ...(autoActivate ? { isActive: true } : {}),
-          ...(body.subcategoryId !== undefined ? { subcategoryId: body.subcategoryId } : {}),
-          ...(body.label !== undefined ? { label: body.label } : {}),
-          ...(body.sku !== undefined ? { sku: body.sku?.trim() || null } : {}),
-          ...(body.actualPrice !== undefined ? { actualPricePaise: body.actualPrice * 100 } : {}),
-          ...(body.offerPrice !== undefined ? { offerPricePaise: body.offerPrice * 100 } : {}),
-          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-          ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(schema.merchantCatalogItems.id, id),
-            eq(schema.merchantCatalogItems.merchantId, merchantId),
-          ),
-        )
-        .returning();
+      const set = {
+        ...(autoActivate ? { isActive: true } : {}),
+        ...(body.subcategoryId !== undefined ? { subcategoryId: body.subcategoryId } : {}),
+        ...(body.label !== undefined ? { label: body.label } : {}),
+        ...(body.sku !== undefined ? { sku: body.sku?.trim() || null } : {}),
+        ...(body.actualPrice !== undefined ? { actualPricePaise: body.actualPrice * 100 } : {}),
+        ...(body.offerPrice !== undefined ? { offerPricePaise: body.offerPrice * 100 } : {}),
+        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+        updatedAt: new Date(),
+      };
+      const staff = staffOf(req);
+      const [updated] = staff
+        ? await app.db.transaction(async (tx) => {
+            const rows = await tx
+              .update(schema.merchantCatalogItems)
+              .set({ ...set, updatedByStaffId: staff.staffId })
+              .where(itemWhere)
+              .returning();
+            if (!rows[0]) return rows;
+            await recordAudit(tx, {
+              actor: staffAuditActor(staff),
+              action: 'merchant_catalog.update',
+              resourceType: 'merchant_catalog_item',
+              resourceId: id,
+              before: existing,
+              after: rows[0],
+              request: req,
+            });
+            return rows;
+          })
+        : await app.db.update(schema.merchantCatalogItems).set(set).where(itemWhere).returning();
 
       if (!updated) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
       return serializeCatalogItem(app, updated);
@@ -703,7 +909,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.delete(
     '/v1/merchant/catalog/:id',
     {
-      preHandler: app.requireMerchant,
+      preHandler: app.requireMerchantTeam,
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req, reply) => {
@@ -711,6 +917,41 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const { id } = req.params as { id: string };
+
+      // Staff delete is a soft delete: the row and every storage object stay, so the
+      // delete is reversible (restore is an AiVastra admin job, no UI in 3b). An item that
+      // is already soft-deleted is 404, like any other item this caller cannot see.
+      const staff = staffOf(req);
+      if (staff) {
+        const hidden = await app.db.transaction(async (tx) => {
+          const [row] = await tx
+            .update(schema.merchantCatalogItems)
+            .set({ deletedAt: new Date(), deletedByStaffId: staff.staffId })
+            .where(
+              and(
+                eq(schema.merchantCatalogItems.id, id),
+                eq(schema.merchantCatalogItems.merchantId, merchantId),
+                isNull(schema.merchantCatalogItems.deletedAt),
+              ),
+            )
+            .returning();
+          if (!row) return null;
+          await recordAudit(tx, {
+            actor: staffAuditActor(staff),
+            action: 'merchant_catalog.soft_delete',
+            resourceType: 'merchant_catalog_item',
+            resourceId: id,
+            after: { deletedAt: row.deletedAt, deletedByStaffId: row.deletedByStaffId },
+            request: req,
+          });
+          return row;
+        });
+        if (!hidden) throw new AppError('NOT_FOUND', 404, 'catalog item not found');
+        reply.code(204);
+        return reply.send();
+      }
+
+      // Owner: the legacy hard delete, unchanged — it also removes rows staff soft-deleted.
       const [deleted] = await app.db
         .delete(schema.merchantCatalogItems)
         .where(
@@ -762,6 +1003,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
     if (rows.length === 0) return { catalogues: [] };
 
+    // No deleted_at filter on purpose: a staff soft-deleted import still holds the
+    // (merchant_id, source_job_id) unique slot, so /import of that job would 409. Reporting
+    // it as imported keeps the picker consistent with what /import will actually do.
     const importedRows = await app.db
       .select({ sourceJobId: schema.merchantCatalogItems.sourceJobId })
       .from(schema.merchantCatalogItems)
@@ -828,7 +1072,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/v1/merchant/catalog/import',
-    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogImportBody } },
+    { preHandler: app.requireMerchantTeam, schema: { body: MerchantCatalogImportBody } },
     async (req, reply) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
@@ -877,6 +1121,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       }
       if (!job.resultKey) throw new AppError('BAD_UPLOAD', 400, 'job has no output');
 
+      const staff = staffOf(req);
       const item = await copyJobOutputIntoProduct(app, {
         merchantId,
         subcategoryId,
@@ -884,6 +1129,19 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         resultKey: job.resultKey,
         thumbnailKey: job.thumbnailKey,
         sourceKind: 'imported',
+        ...(staff
+          ? {
+              audit: (tx: DbTransaction, row: MerchantCatalogRow) =>
+                recordAudit(tx, {
+                  actor: staffAuditActor(staff),
+                  action: 'merchant_catalog.import',
+                  resourceType: 'merchant_catalog_item',
+                  resourceId: row.id,
+                  after: { sourceJobId: job.id, subcategoryId },
+                  request: req,
+                }),
+            }
+          : {}),
       });
 
       reply.code(201);
@@ -924,7 +1182,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/v1/merchant/catalog/generate',
-    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
+    { preHandler: app.requireMerchantTeam, schema: { body: MerchantCatalogGenerateBody } },
     async (req, reply) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
@@ -952,6 +1210,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .limit(1);
       if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
 
+      // Staff spend the merchant owner's wallet (row.userId) like the owner does; the job
+      // only additionally records who spent it, and the audit row lands in its transaction.
+      const staff = catalogJobStaff(req, staffOf(req));
       const { jobId } = mannequinOnly
         ? await createMerchantSareeMannequinJob(app, {
             userId: row.userId,
@@ -960,6 +1221,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             merchantId,
             sareeStyleId,
             secondFlatImageKey,
+            ...(staff ? { staff } : {}),
           })
         : await createMerchantCatalogJob(app, {
             userId: row.userId,
@@ -969,6 +1231,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             subcategoryId,
             merchantId,
             secondFlatImageKey,
+            ...(staff ? { staff } : {}),
           });
 
       reply.code(201);
@@ -978,7 +1241,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/v1/merchant/catalog/generate-bulk',
-    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBulkBody } },
+    { preHandler: app.requireMerchantTeam, schema: { body: MerchantCatalogGenerateBulkBody } },
     async (req, reply) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
@@ -1007,6 +1270,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .limit(1);
       if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
 
+      // One audit row per created job, each inside that job's own transaction (the jobs are
+      // created one transaction apiece, so a single per-request row could not be fail-closed).
+      const staff = catalogJobStaff(req, staffOf(req));
       const jobIds: string[] = [];
       const failures: Array<{ flatImageKey: string; error: string }> = [];
       for (const flatImageKey of flatImageKeys) {
@@ -1022,6 +1288,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             // POST /admin/held-jobs/release. The single-item /generate route
             // stays interactive because the merchant is waiting on it.
             hold: true,
+            ...(staff ? { staff } : {}),
           });
           jobIds.push(jobId);
         } catch (err) {
@@ -1095,7 +1362,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
   app.get(
     '/v1/merchant/catalog/generate/:jobId',
-    { preHandler: app.requireMerchant, schema: { params: z.object({ jobId: z.string().uuid() }) } },
+    {
+      preHandler: app.requireMerchantTeam,
+      schema: { params: z.object({ jobId: z.string().uuid() }) },
+    },
     async (req) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
@@ -1145,7 +1415,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
    */
   app.post(
     '/v1/merchant/catalog/reconcile-held',
-    { preHandler: app.requireMerchant },
+    { preHandler: app.requireMerchantTeam },
     async (req) => {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');

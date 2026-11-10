@@ -25,7 +25,7 @@ import { notComparisonJob, notComparisonSystemUser } from '../comparison/exclusi
 import { DEFAULT_RENEWAL_PROMPT } from '../credits/renewal-prompt.routes.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
 import { recordAudit } from './audit.js';
-import { requirePermission } from './guard.js';
+import { getRolePermissions, requireAnyPermission, requirePermission } from './guard.js';
 
 const KEY = 'config:system';
 
@@ -346,323 +346,365 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     return reply.redirect(url, 302);
   });
 
-  app.get('/admin/stats', { preHandler: requirePermission('config.read') }, async (req) => {
-    const query = req.query as { days?: string };
-    const days = parseInt(query.days || '7', 10);
-    const validDays = Number.isNaN(days) || days < 1 ? 7 : days > 30 ? 30 : days;
+  // Each dashboard section needs a narrower permission than the whole page used
+  // to require (config.read) — a role with, say, only jobs.read should still see
+  // the jobs-related tiles instead of the entire page 403ing. config.read keeps
+  // unlocking every section, matching what SUPER_ADMIN/ADMIN/MODERATOR already see.
+  const STATS_SECTION_PERMS = [
+    'jobs.read',
+    'credits.read',
+    'users.read',
+    'workers.read',
+    'chatbot.read',
+  ];
+  app.get(
+    '/admin/stats',
+    { preHandler: requireAnyPermission(['config.read', ...STATS_SECTION_PERMS]) },
+    async (req) => {
+      const query = req.query as { days?: string };
+      const days = parseInt(query.days || '7', 10);
+      const validDays = Number.isNaN(days) || days < 1 ? 7 : days > 30 ? 30 : days;
 
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(todayStart.getTime() - 86400000);
-    const h24ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const dNago = new Date(todayStart.getTime() - (validDays - 1) * 86400000);
-    const stuckThreshold = new Date(now.getTime() - 10 * 60 * 1000);
-    // Second and third stuck-duration bucket boundaries, for the dashboard's
-    // stuck-queue histogram — stuckThreshold (10m) is already the first one.
-    const stuck20 = new Date(now.getTime() - 20 * 60 * 1000);
-    const stuck40 = new Date(now.getTime() - 40 * 60 * 1000);
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(todayStart.getTime() - 86400000);
+      const h24ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const dNago = new Date(todayStart.getTime() - (validDays - 1) * 86400000);
+      const stuckThreshold = new Date(now.getTime() - 10 * 60 * 1000);
+      // Second and third stuck-duration bucket boundaries, for the dashboard's
+      // stuck-queue histogram — stuckThreshold (10m) is already the first one.
+      const stuck20 = new Date(now.getTime() - 20 * 60 * 1000);
+      const stuck40 = new Date(now.getTime() - 40 * 60 * 1000);
 
-    const [
-      queueDepthRow,
-      workersRaw,
-      jobsTodayRows,
-      jobsYesterdayRows,
-      activeUsersTodayRows,
-      activeUsersYesterdayRows,
-      creditsTodayRows,
-      creditsYesterdayRows,
-      failed24hRows,
-      jobsLast24hRows,
-      jobsPerDayRows,
-      recentFailures,
-      failuresByCodeRows,
-      stuckJobs,
-      stuck10to20Rows,
-      stuck20to40Rows,
-      stuck40PlusRows,
-      newUsersRows,
-      newContactsRows,
-      unclaimedChatsRows,
-    ] = await Promise.all([
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(and(eq(schema.jobs.status, 'QUEUED'), notComparisonJob)),
-      app.redis.hgetall('worker:registry'),
+      const [
+        queueDepthRow,
+        workersRaw,
+        jobsTodayRows,
+        jobsYesterdayRows,
+        activeUsersTodayRows,
+        activeUsersYesterdayRows,
+        creditsTodayRows,
+        creditsYesterdayRows,
+        failed24hRows,
+        jobsLast24hRows,
+        jobsPerDayRows,
+        recentFailures,
+        failuresByCodeRows,
+        stuckJobs,
+        stuck10to20Rows,
+        stuck20to40Rows,
+        stuck40PlusRows,
+        newUsersRows,
+        newContactsRows,
+        unclaimedChatsRows,
+      ] = await Promise.all([
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(and(eq(schema.jobs.status, 'QUEUED'), notComparisonJob)),
+        app.redis.hgetall('worker:registry'),
 
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(and(gte(schema.jobs.createdAt, todayStart), notComparisonJob)),
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(
-          and(
-            gte(schema.jobs.createdAt, yesterday),
-            lt(schema.jobs.createdAt, todayStart),
-            notComparisonJob,
-          ),
-        ),
-
-      app.db
-        .select({ c: countDistinct(schema.jobs.userId) })
-        .from(schema.jobs)
-        .where(and(gte(schema.jobs.createdAt, todayStart), notComparisonJob)),
-      app.db
-        .select({ c: countDistinct(schema.jobs.userId) })
-        .from(schema.jobs)
-        .where(
-          and(
-            gte(schema.jobs.createdAt, yesterday),
-            lt(schema.jobs.createdAt, todayStart),
-            notComparisonJob,
-          ),
-        ),
-
-      app.db
-        .select({ c: sum(schema.jobs.creditsCharged) })
-        .from(schema.jobs)
-        .where(and(eq(schema.jobs.status, 'COMPLETED'), gte(schema.jobs.completedAt, todayStart))),
-      app.db
-        .select({ c: sum(schema.jobs.creditsCharged) })
-        .from(schema.jobs)
-        .where(
-          and(
-            eq(schema.jobs.status, 'COMPLETED'),
-            gte(schema.jobs.completedAt, yesterday),
-            lt(schema.jobs.completedAt, todayStart),
-          ),
-        ),
-
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(
-          and(
-            eq(schema.jobs.status, 'FAILED'),
-            gte(schema.jobs.createdAt, h24ago),
-            notComparisonJob,
-          ),
-        ),
-
-      // Pairs with failed24hRows for a true same-window success-rate donut —
-      // jobsToday above is since local midnight, a different window.
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(and(gte(schema.jobs.createdAt, h24ago), notComparisonJob)),
-
-      app.db
-        .select({
-          day: sql<string>`DATE(${schema.jobs.createdAt})`,
-          c: count(),
-        })
-        .from(schema.jobs)
-        .where(and(gte(schema.jobs.createdAt, dNago), notComparisonJob))
-        .groupBy(sql`DATE(${schema.jobs.createdAt})`)
-        .orderBy(sql`DATE(${schema.jobs.createdAt})`),
-
-      app.db
-        .select({
-          id: schema.jobs.id,
-          errorCode: schema.jobs.errorCode,
-          createdAt: schema.jobs.createdAt,
-          userEmail: schema.users.email,
-        })
-        .from(schema.jobs)
-        .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
-        .where(and(eq(schema.jobs.status, 'FAILED'), gte(schema.jobs.createdAt, h24ago)))
-        .orderBy(sql`${schema.jobs.createdAt} DESC`)
-        .limit(5),
-
-      // Full 24h breakdown by error code, for the dashboard's failures-by-reason
-      // chart — recentFailures above is only the latest 5, too small a sample
-      // to chart as a distribution.
-      app.db
-        .select({ code: schema.jobs.errorCode, c: count() })
-        .from(schema.jobs)
-        .where(
-          and(
-            eq(schema.jobs.status, 'FAILED'),
-            gte(schema.jobs.createdAt, h24ago),
-            notComparisonJob,
-          ),
-        )
-        .groupBy(schema.jobs.errorCode)
-        .orderBy(sql`count(*) DESC`)
-        .limit(8),
-
-      app.db
-        .select({
-          id: schema.jobs.id,
-          createdAt: schema.jobs.createdAt,
-          userEmail: schema.users.email,
-        })
-        .from(schema.jobs)
-        .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
-        .where(and(eq(schema.jobs.status, 'QUEUED'), lte(schema.jobs.createdAt, stuckThreshold)))
-        .orderBy(schema.jobs.createdAt)
-        .limit(5),
-
-      // Stuck-duration histogram buckets — stuckJobs above is only the oldest
-      // 5, too small a sample to chart as a distribution across every stuck job.
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(
-          and(
-            eq(schema.jobs.status, 'QUEUED'),
-            lte(schema.jobs.createdAt, stuckThreshold),
-            gte(schema.jobs.createdAt, stuck20),
-            notComparisonJob,
-          ),
-        ),
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(
-          and(
-            eq(schema.jobs.status, 'QUEUED'),
-            lt(schema.jobs.createdAt, stuck20),
-            gte(schema.jobs.createdAt, stuck40),
-            notComparisonJob,
-          ),
-        ),
-      app.db
-        .select({ c: count() })
-        .from(schema.jobs)
-        .where(
-          and(
-            eq(schema.jobs.status, 'QUEUED'),
-            lt(schema.jobs.createdAt, stuck40),
-            notComparisonJob,
-          ),
-        ),
-
-      app.db
-        .select({ c: count() })
-        .from(schema.users)
-        .where(and(gte(schema.users.createdAt, todayStart), notComparisonSystemUser)),
-
-      app.db
-        .select({ c: count() })
-        .from(schema.contactRequests)
-        .where(eq(schema.contactRequests.status, 'new')),
-
-      // Mirrors the hasUserMessage + status='OPEN' filter GET /admin/chatbot/conversations
-      // uses for its "Unclaimed" tab — a ticket row is created the instant a chat
-      // widget socket connects, before anything is typed, so without the exists()
-      // check this would count empty, never-messaged tickets too.
-      app.db
-        .select({ c: count() })
-        .from(schema.chatbotConversations)
-        .where(
-          and(
-            eq(schema.chatbotConversations.status, 'OPEN'),
-            exists(
-              app.db
-                .select()
-                .from(schema.chatbotMessages)
-                .where(
-                  and(
-                    eq(schema.chatbotMessages.conversationId, schema.chatbotConversations.id),
-                    eq(schema.chatbotMessages.role, 'user'),
-                  ),
-                ),
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(and(gte(schema.jobs.createdAt, todayStart), notComparisonJob)),
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(
+            and(
+              gte(schema.jobs.createdAt, yesterday),
+              lt(schema.jobs.createdAt, todayStart),
+              notComparisonJob,
             ),
           ),
-        ),
-    ]);
 
-    // Workers from Redis
-    const workers: { id: string; status: string; healthy: boolean; lastSeen?: string }[] = [];
-    for (const [id, v] of Object.entries(workersRaw)) {
-      try {
-        const info = JSON.parse(v);
-        const healthKey = await app.redis.get(`worker:health:${id}`);
-        workers.push({
-          id,
-          status: info.status ?? 'UNKNOWN',
-          healthy: !!healthKey,
-          lastSeen: info.lastSeen,
-        });
-      } catch {
-        /* skip malformed */
+        app.db
+          .select({ c: countDistinct(schema.jobs.userId) })
+          .from(schema.jobs)
+          .where(and(gte(schema.jobs.createdAt, todayStart), notComparisonJob)),
+        app.db
+          .select({ c: countDistinct(schema.jobs.userId) })
+          .from(schema.jobs)
+          .where(
+            and(
+              gte(schema.jobs.createdAt, yesterday),
+              lt(schema.jobs.createdAt, todayStart),
+              notComparisonJob,
+            ),
+          ),
+
+        app.db
+          .select({ c: sum(schema.jobs.creditsCharged) })
+          .from(schema.jobs)
+          .where(
+            and(eq(schema.jobs.status, 'COMPLETED'), gte(schema.jobs.completedAt, todayStart)),
+          ),
+        app.db
+          .select({ c: sum(schema.jobs.creditsCharged) })
+          .from(schema.jobs)
+          .where(
+            and(
+              eq(schema.jobs.status, 'COMPLETED'),
+              gte(schema.jobs.completedAt, yesterday),
+              lt(schema.jobs.completedAt, todayStart),
+            ),
+          ),
+
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(
+            and(
+              eq(schema.jobs.status, 'FAILED'),
+              gte(schema.jobs.createdAt, h24ago),
+              notComparisonJob,
+            ),
+          ),
+
+        // Pairs with failed24hRows for a true same-window success-rate donut —
+        // jobsToday above is since local midnight, a different window.
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(and(gte(schema.jobs.createdAt, h24ago), notComparisonJob)),
+
+        app.db
+          .select({
+            day: sql<string>`DATE(${schema.jobs.createdAt})`,
+            c: count(),
+          })
+          .from(schema.jobs)
+          .where(and(gte(schema.jobs.createdAt, dNago), notComparisonJob))
+          .groupBy(sql`DATE(${schema.jobs.createdAt})`)
+          .orderBy(sql`DATE(${schema.jobs.createdAt})`),
+
+        app.db
+          .select({
+            id: schema.jobs.id,
+            errorCode: schema.jobs.errorCode,
+            createdAt: schema.jobs.createdAt,
+            userEmail: schema.users.email,
+          })
+          .from(schema.jobs)
+          .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
+          .where(and(eq(schema.jobs.status, 'FAILED'), gte(schema.jobs.createdAt, h24ago)))
+          .orderBy(sql`${schema.jobs.createdAt} DESC`)
+          .limit(5),
+
+        // Full 24h breakdown by error code, for the dashboard's failures-by-reason
+        // chart — recentFailures above is only the latest 5, too small a sample
+        // to chart as a distribution.
+        app.db
+          .select({ code: schema.jobs.errorCode, c: count() })
+          .from(schema.jobs)
+          .where(
+            and(
+              eq(schema.jobs.status, 'FAILED'),
+              gte(schema.jobs.createdAt, h24ago),
+              notComparisonJob,
+            ),
+          )
+          .groupBy(schema.jobs.errorCode)
+          .orderBy(sql`count(*) DESC`)
+          .limit(8),
+
+        app.db
+          .select({
+            id: schema.jobs.id,
+            createdAt: schema.jobs.createdAt,
+            userEmail: schema.users.email,
+          })
+          .from(schema.jobs)
+          .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
+          .where(and(eq(schema.jobs.status, 'QUEUED'), lte(schema.jobs.createdAt, stuckThreshold)))
+          .orderBy(schema.jobs.createdAt)
+          .limit(5),
+
+        // Stuck-duration histogram buckets — stuckJobs above is only the oldest
+        // 5, too small a sample to chart as a distribution across every stuck job.
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(
+            and(
+              eq(schema.jobs.status, 'QUEUED'),
+              lte(schema.jobs.createdAt, stuckThreshold),
+              gte(schema.jobs.createdAt, stuck20),
+              notComparisonJob,
+            ),
+          ),
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(
+            and(
+              eq(schema.jobs.status, 'QUEUED'),
+              lt(schema.jobs.createdAt, stuck20),
+              gte(schema.jobs.createdAt, stuck40),
+              notComparisonJob,
+            ),
+          ),
+        app.db
+          .select({ c: count() })
+          .from(schema.jobs)
+          .where(
+            and(
+              eq(schema.jobs.status, 'QUEUED'),
+              lt(schema.jobs.createdAt, stuck40),
+              notComparisonJob,
+            ),
+          ),
+
+        app.db
+          .select({ c: count() })
+          .from(schema.users)
+          .where(and(gte(schema.users.createdAt, todayStart), notComparisonSystemUser)),
+
+        app.db
+          .select({ c: count() })
+          .from(schema.contactRequests)
+          .where(eq(schema.contactRequests.status, 'new')),
+
+        // Mirrors the hasUserMessage + status='OPEN' filter GET /admin/chatbot/conversations
+        // uses for its "Unclaimed" tab — a ticket row is created the instant a chat
+        // widget socket connects, before anything is typed, so without the exists()
+        // check this would count empty, never-messaged tickets too.
+        app.db
+          .select({ c: count() })
+          .from(schema.chatbotConversations)
+          .where(
+            and(
+              eq(schema.chatbotConversations.status, 'OPEN'),
+              exists(
+                app.db
+                  .select()
+                  .from(schema.chatbotMessages)
+                  .where(
+                    and(
+                      eq(schema.chatbotMessages.conversationId, schema.chatbotConversations.id),
+                      eq(schema.chatbotMessages.role, 'user'),
+                    ),
+                  ),
+              ),
+            ),
+          ),
+      ]);
+
+      // Workers from Redis
+      const workers: { id: string; status: string; healthy: boolean; lastSeen?: string }[] = [];
+      for (const [id, v] of Object.entries(workersRaw)) {
+        try {
+          const info = JSON.parse(v);
+          const healthKey = await app.redis.get(`worker:health:${id}`);
+          workers.push({
+            id,
+            status: info.status ?? 'UNKNOWN',
+            healthy: !!healthKey,
+            lastSeen: info.lastSeen,
+          });
+        } catch {
+          /* skip malformed */
+        }
       }
-    }
 
-    const delta = (today: number, yesterday: number) =>
-      yesterday > 0 ? Math.round(((today - yesterday) / yesterday) * 100 * 10) / 10 : null;
+      const delta = (today: number, yesterday: number) =>
+        yesterday > 0 ? Math.round(((today - yesterday) / yesterday) * 100 * 10) / 10 : null;
 
-    const jobsToday = jobsTodayRows[0]?.c ?? 0;
-    const jobsYesterday = jobsYesterdayRows[0]?.c ?? 0;
-    const activeUsersToday = activeUsersTodayRows[0]?.c ?? 0;
-    const activeUsersYesterday = activeUsersYesterdayRows[0]?.c ?? 0;
-    const creditsToday = Number(creditsTodayRows[0]?.c ?? 0);
-    const creditsYesterday = Number(creditsYesterdayRows[0]?.c ?? 0);
+      const jobsToday = jobsTodayRows[0]?.c ?? 0;
+      const jobsYesterday = jobsYesterdayRows[0]?.c ?? 0;
+      const activeUsersToday = activeUsersTodayRows[0]?.c ?? 0;
+      const activeUsersYesterday = activeUsersYesterdayRows[0]?.c ?? 0;
+      const creditsToday = Number(creditsTodayRows[0]?.c ?? 0);
+      const creditsYesterday = Number(creditsYesterdayRows[0]?.c ?? 0);
 
-    // Build chart (fill missing days with 0)
-    const dayMap = new Map(jobsPerDayRows.map((r) => [r.day, Number(r.c)]));
-    const jobsPerDay: number[] = [];
-    const jobsPerDayLabels: string[] = [];
-    for (let i = validDays - 1; i >= 0; i--) {
-      const d = new Date(todayStart.getTime() - i * 86400000);
-      const key = d.toISOString().slice(0, 10);
-      jobsPerDay.push(dayMap.get(key) ?? 0);
-      jobsPerDayLabels.push(
-        i === 0 ? 'Today' : d.toLocaleDateString('en', { month: 'short', day: 'numeric' }),
-      );
-    }
+      // Build chart (fill missing days with 0)
+      const dayMap = new Map(jobsPerDayRows.map((r) => [r.day, Number(r.c)]));
+      const jobsPerDay: number[] = [];
+      const jobsPerDayLabels: string[] = [];
+      for (let i = validDays - 1; i >= 0; i--) {
+        const d = new Date(todayStart.getTime() - i * 86400000);
+        const key = d.toISOString().slice(0, 10);
+        jobsPerDay.push(dayMap.get(key) ?? 0);
+        jobsPerDayLabels.push(
+          i === 0 ? 'Today' : d.toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+        );
+      }
 
-    const periodTotal = jobsPerDay.reduce((a, b) => a + b, 0);
-    const failed24h = failed24hRows[0]?.c ?? 0;
-    const jobsLast24h = jobsLast24hRows[0]?.c ?? 0;
-    const newUsersToday = newUsersRows[0]?.c ?? 0;
-    const newContacts = Number(newContactsRows[0]?.c ?? 0);
-    const unclaimedChats = Number(unclaimedChatsRows[0]?.c ?? 0);
+      const periodTotal = jobsPerDay.reduce((a, b) => a + b, 0);
+      const failed24h = failed24hRows[0]?.c ?? 0;
+      const jobsLast24h = jobsLast24hRows[0]?.c ?? 0;
+      const newUsersToday = newUsersRows[0]?.c ?? 0;
+      const newContacts = Number(newContactsRows[0]?.c ?? 0);
+      const unclaimedChats = Number(unclaimedChatsRows[0]?.c ?? 0);
 
-    return {
-      jobsToday,
-      jobsTodayDelta: delta(jobsToday, jobsYesterday),
-      creditsToday,
-      creditsTodayDelta: delta(creditsToday, creditsYesterday),
-      activeUsersToday,
-      activeUsersDelta: delta(activeUsersToday, activeUsersYesterday),
-      workersHealthy: workers.filter((w) => w.healthy).length,
-      workersTotal: workers.length,
-      workers,
-      queueDepth: queueDepthRow[0]?.c ?? 0,
-      failed24h,
-      jobsLast24h,
-      jobsPerDay,
-      jobsPerDayLabels,
-      periodTotal,
-      recentFailures: recentFailures.map((j) => ({
-        id: j.id.slice(0, 12),
-        user: j.userEmail ?? '—',
-        error: j.errorCode ?? 'unknown',
-        age: formatAge(j.createdAt),
-      })),
-      failuresByCode: failuresByCodeRows.map((r) => ({
-        code: r.code ?? 'unknown',
-        count: Number(r.c),
-      })),
-      stuckJobs: stuckJobs.map((j) => ({
-        id: j.id.slice(0, 12),
-        user: j.userEmail ?? '—',
-        age: formatAge(j.createdAt),
-      })),
-      stuckBuckets: [
-        { label: '10–20m', count: stuck10to20Rows[0]?.c ?? 0 },
-        { label: '20–40m', count: stuck20to40Rows[0]?.c ?? 0 },
-        { label: '40m+', count: stuck40PlusRows[0]?.c ?? 0 },
-      ],
-      newUsersToday,
-      newContacts,
-      unclaimedChats,
-    };
-  });
+      // config.read keeps seeing every section (matches today's behavior for
+      // SUPER_ADMIN/ADMIN/MODERATOR); otherwise each section only appears for the
+      // specific permission its own data actually needs, so a role like SUPPORT
+      // (jobs.read + credits.read + users.read + chatbot.read, no workers.read)
+      // gets everything except the worker-pool fields instead of a blanket 403.
+      const perms = await getRolePermissions(app, req.adminRole!);
+      const hasConfig = perms.has('config.read');
+      const canSee = (perm: string) => hasConfig || perms.has(perm);
+
+      return {
+        ...(canSee('jobs.read')
+          ? {
+              jobsToday,
+              jobsTodayDelta: delta(jobsToday, jobsYesterday),
+              queueDepth: queueDepthRow[0]?.c ?? 0,
+              failed24h,
+              jobsLast24h,
+              jobsPerDay,
+              jobsPerDayLabels,
+              periodTotal,
+              recentFailures: recentFailures.map((j) => ({
+                id: j.id.slice(0, 12),
+                user: j.userEmail ?? '—',
+                error: j.errorCode ?? 'unknown',
+                age: formatAge(j.createdAt),
+              })),
+              failuresByCode: failuresByCodeRows.map((r) => ({
+                code: r.code ?? 'unknown',
+                count: Number(r.c),
+              })),
+              stuckJobs: stuckJobs.map((j) => ({
+                id: j.id.slice(0, 12),
+                user: j.userEmail ?? '—',
+                age: formatAge(j.createdAt),
+              })),
+              stuckBuckets: [
+                { label: '10–20m', count: stuck10to20Rows[0]?.c ?? 0 },
+                { label: '20–40m', count: stuck20to40Rows[0]?.c ?? 0 },
+                { label: '40m+', count: stuck40PlusRows[0]?.c ?? 0 },
+              ],
+            }
+          : {}),
+        ...(canSee('credits.read')
+          ? {
+              creditsToday,
+              creditsTodayDelta: delta(creditsToday, creditsYesterday),
+            }
+          : {}),
+        ...(canSee('users.read')
+          ? {
+              activeUsersToday,
+              activeUsersDelta: delta(activeUsersToday, activeUsersYesterday),
+              newUsersToday,
+            }
+          : {}),
+        ...(canSee('workers.read')
+          ? {
+              workersHealthy: workers.filter((w) => w.healthy).length,
+              workersTotal: workers.length,
+              workers,
+            }
+          : {}),
+        ...(canSee('chatbot.read') ? { unclaimedChats } : {}),
+        newContacts,
+      };
+    },
+  );
 }
 
 async function readAppVideoConfig(

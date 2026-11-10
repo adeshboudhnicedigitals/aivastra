@@ -437,6 +437,16 @@ export const AdminMerchantCatalogUpdateBody = z
   );
 export type AdminMerchantCatalogUpdateBody = z.infer<typeof AdminMerchantCatalogUpdateBody>;
 
+// Merchant storefront URL. Shared by the AiVastra admin route and Merchant Web's brand
+// settings so both accept and reject exactly the same values. Base (non-null) form: callers
+// add .nullable()/.optional() as their contract needs.
+// zod's .url() accepts javascript: and data: — this value is rendered as a link.
+export const storeUrlSchema = z
+  .string()
+  .url()
+  .max(500)
+  .refine((v) => /^https?:\/\//i.test(v), 'must be an http(s) URL');
+
 export const AdminMerchantUpdateBody = z
   .object({
     isActive: z.boolean().optional(),
@@ -452,6 +462,12 @@ export const AdminMerchantUpdateBody = z
     logoKey: z.string().max(500).nullable().optional(),
     logoOverlayEnabled: z.boolean().optional(),
     loadingVideoKey: z.string().max(500).nullable().optional(),
+    // v1.0 org model — AiVastra-admin-only commercial settings (HLD §4.2).
+    staffLimitPerBranch: z.number().int().min(0).max(50).optional(),
+    // Null = unlimited.
+    // Upper bound keeps the value inside Postgres int4 (larger would 500 on write).
+    deviceQuotaPerMonth: z.number().int().min(1).max(1_000_000).nullable().optional(),
+    storeUrl: storeUrlSchema.nullable().optional(),
   })
   .refine((body) => Object.values(body).some((v) => v !== undefined), {
     message: 'at least one field is required',
@@ -489,6 +505,9 @@ export const ShopifyCustomerJobRequest = z.object({
   // Contact data, like email: shopper-asserted, never an authorization input.
   // Only stored, and only required of shoppers of a login-required store.
   phone: z.string().trim().refine(isValidPhone, { message: 'invalid phone number' }).optional(),
+  // The product image the shopper was viewing. Only a hint: the API matches it
+  // against the product's own images and never fetches this URL.
+  imageUrl: z.string().url().max(2048).optional(),
 });
 export type ShopifyCustomerJobRequest = z.infer<typeof ShopifyCustomerJobRequest>;
 
@@ -524,8 +543,13 @@ export const ShopifyStoreRetentionPatch = z.object({
   shopperRecordDays: optionOrOff(SHOPPER_RECORD_RETENTION_DAYS).optional(),
 });
 
+export const ShopifyStoreTryonPatch = z.object({
+  useViewedImage: z.boolean().optional(),
+});
+
 export const ShopifyStoreSettingsPatch = z.object({
   limits: ShopifyStoreLimitsPatch.optional(),
+  tryon: ShopifyStoreTryonPatch.optional(),
   retention: ShopifyStoreRetentionPatch.optional(),
 });
 export type ShopifyStoreSettingsPatch = z.infer<typeof ShopifyStoreSettingsPatch>;

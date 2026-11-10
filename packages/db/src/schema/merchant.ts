@@ -82,6 +82,15 @@ export const merchants = pgTable('merchants', {
   signupSource: text('signup_source', { enum: ['admin', 'android_google', 'wordpress'] })
     .notNull()
     .default('admin'),
+  // v1.0 org model (docs/architecture/v1-hld.md §4.2). How many ACTIVE staff
+  // accounts each branch may hold. Editable only from the AiVastra admin panel —
+  // the merchant admin sees it but cannot raise it; it is a commercial lever.
+  staffLimitPerBranch: integer('staff_limit_per_branch').notNull().default(2),
+  // Null = unlimited. Monthly try-on quota per subscribed device; overflow falls
+  // back to credits (HLD §6). Not read anywhere until the entitlement step ships.
+  deviceQuotaPerMonth: integer('device_quota_per_month'),
+  // Target of the shopper page's "Buy online" link (HLD §3.3). Null hides the link.
+  storeUrl: text('store_url'),
   // Login credentials live on `users` — a merchant IS a user with a merchants
   // profile attached (same pattern as admin_users). One merchant account per user.
   userId: uuid('user_id')
@@ -169,6 +178,15 @@ export const merchantCatalogItems = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    // Staff soft delete: merchant-facing reads exclude deleted_at IS NOT NULL. is_active is
+    // admin moderation and is deliberately NOT reused for this.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedByStaffId: uuid('deleted_by_staff_id').references(() => merchantStaff.id, {
+      onDelete: 'set null',
+    }),
+    updatedByStaffId: uuid('updated_by_staff_id').references(() => merchantStaff.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     index('merchant_catalog_items_merchant_idx').on(t.merchantId, t.isActive),
@@ -214,4 +232,48 @@ export const merchantWidgetEvents = pgTable(
       t.createdAt,
     ),
   ],
+);
+
+// v1.0 org model. A branch is one physical store of a merchant. Never deleted —
+// deactivated — because sessions, devices and jobs will reference it.
+export const merchantBranches = pgTable(
+  'merchant_branches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    city: text('city'),
+    address: text('address'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('merchant_branches_merchant_idx').on(t.merchantId)],
+);
+
+// A staff login. The credentials live on `users` (same pattern as merchants and
+// admin_users); this row is the membership. The merchant OWNER (merchants.user_id)
+// is the merchant admin and has no row here. user_id is unique: one user is staff
+// of at most one merchant.
+export const merchantStaff = pgTable(
+  'merchant_staff',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id, { onDelete: 'cascade' }),
+    branchId: uuid('branch_id')
+      .notNull()
+      .references(() => merchantBranches.id),
+    userId: uuid('user_id')
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('merchant_staff_branch_idx').on(t.branchId, t.isActive)],
 );

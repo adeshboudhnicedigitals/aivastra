@@ -179,6 +179,8 @@
     // hasn't resolved yet or failed, since it's a fire-and-forget call below.
     let verboseErrors = false;
     let loginRequired = false;
+    // Opt-in per store (enabled-check response): send the gallery image the shopper is viewing.
+    let useViewedImage = false;
     // False until the enabled check has answered either way, so the upload step
     // never offers the photo picker before we know whether login is required.
     let loginStateKnown = false;
@@ -199,6 +201,7 @@
         const body = await res.json();
         verboseErrors = body.verboseErrors === true;
         loginRequired = body.loginRequired === true;
+        useViewedImage = body.useViewedImage === true;
         if (body.enabled) root.hidden = false;
       } catch (err) {
         // Fail open: an unreachable/slow API must not hide try-on storewide.
@@ -1259,6 +1262,7 @@
     function openModal() {
       trackEvent('button_click');
       modal.hidden = false;
+      renderGarmentHint();
       // Every (re)open is a new root context — a navStack entry pushed by
       // browsing History before the modal was last closed no longer points
       // anywhere a shopper asked to go back to.
@@ -1340,10 +1344,67 @@
       return r2Key;
     }
 
+    // The product image currently shown in the theme's main gallery, or null when
+    // it cannot be told. Themes mark the shown slide differently, so try the
+    // common conventions in order; null means "use the product's default image".
+    // The URL is only a hint: the API matches it against the product's own images.
+    const ACTIVE_IMAGE_SELECTORS = [
+      '.product__media-item.is-active img',
+      '.product-gallery__slide.is-selected img',
+      '.swiper-slide-active img',
+      '.slick-current img',
+      '.splide__slide.is-active img',
+      '.flickity-slider .is-selected img',
+      '.glide__slide--active img',
+      '[data-media-id].is-active img',
+      '[data-product-single-media-wrapper]:not([hidden]) img',
+    ];
+    function activeProductImageUrl() {
+      const scope = document.querySelector('main') || document;
+      for (const selector of ACTIVE_IMAGE_SELECTORS) {
+        for (const img of scope.querySelectorAll(selector)) {
+          if (img.closest('.aivastra-tryon')) continue;
+          const box = img.getBoundingClientRect();
+          if (box.width < 100 || box.height < 100) continue;
+          const src = img.currentSrc || img.src;
+          if (!src) continue;
+          return src.startsWith('//') ? `https:${src}` : src;
+        }
+      }
+      return null;
+    }
+
+    // Shows the shopper which image will be tried on. Re-rendered on every open
+    // because the gallery may have changed (variant picked) since the last one.
+    function renderGarmentHint() {
+      const host = steps.upload;
+      if (!host) return;
+      let hint = host.querySelector('.aivastra-tryon__garment-hint');
+      const url = useViewedImage ? activeProductImageUrl() : null;
+      if (!url) {
+        if (hint) hint.remove();
+        return;
+      }
+      if (!hint) {
+        hint = document.createElement('div');
+        hint.className = 'aivastra-tryon__garment-hint';
+        const img = document.createElement('img');
+        img.alt = '';
+        img.width = 40;
+        img.height = 40;
+        const text = document.createElement('span');
+        text.textContent = "Trying on the image you're viewing";
+        hint.append(img, text);
+        host.prepend(hint);
+      }
+      hint.querySelector('img').src = url;
+    }
+
     async function createJob(customerPhotoKey) {
       // Whether this request carries a shopper-supplied address, which decides
       // whether a VALIDATION refusal below can be attributed to it.
       const sentEmail = !!(shopperEmail && (emailConfirmedByShopper || loginRequired));
+      const viewedImageUrl = useViewedImage ? activeProductImageUrl() : null;
       let res;
       try {
         res = await fetchWithTimeout(
@@ -1357,6 +1418,7 @@
               shopifyProductId: productId,
               customerPhotoKey: customerPhotoKey,
               clientId,
+              ...(viewedImageUrl ? { imageUrl: viewedImageUrl } : {}),
               ...(shopifyCustomerId ? { shopifyCustomerId } : {}),
               // Gated on the shopper having submitted the email step, not merely on
               // having an address: `shopperEmail` is prefilled from Liquid for any
@@ -1918,6 +1980,17 @@
     '.product-images',
     '.product__images',
   ];
+  // The wrapper of the whole gallery, as opposed to one slide of it. A slider
+  // moves its slides, so a pill placed in the first slide's wrapper scrolls away
+  // with it; the gallery wrapper stays put while the shown image changes.
+  const GALLERY_SELECTOR = [
+    'media-gallery',
+    '.product__media-wrapper',
+    '.product-gallery',
+    '.product__gallery',
+    '.product-images',
+    '.product__images',
+  ].join(',');
   const THUMBNAIL_SELECTOR =
     '[class*="thumb" i], [data-thumbnail], header, footer, nav, [class*="cart" i], [class*="recommend" i]';
 
@@ -1957,15 +2030,31 @@
     return !!position && position !== 'static';
   }
 
+  // Chrome around the gallery (thumbnail strips, header, cart drawer...). A layout
+  // class such as Dawn's "product--thumbnail_slider" also contains "thumb" but sits
+  // on an ancestor of the whole gallery, so a match that holds the main media
+  // wrapper is a layout wrapper, not a thumbnail.
+  function isChromeImage(img) {
+    const match = img.closest(THUMBNAIL_SELECTOR);
+    if (!match) return false;
+    return !safeQuery(match, MEDIA_SELECTORS.join(','));
+  }
+
   function findMediaContainer(doc, win, opts) {
     if (opts.selector) {
       const el = safeQuery(doc, opts.selector);
       if (el) return { el, needsRelative: !isPositioned(win, el) };
     }
     const wanted = opts.productImage ? imageKey(opts.productImage, win.location.href) : '';
-    const imgs = Array.prototype.slice
-      .call(doc.querySelectorAll('img'))
-      .filter((img) => !img.closest(THUMBNAIL_SELECTOR) && !img.closest(DIALOG_SELECTOR));
+    const imgs = Array.prototype.slice.call(doc.querySelectorAll('img')).filter(
+      (img) =>
+        !isChromeImage(img) &&
+        !img.closest(DIALOG_SELECTOR) &&
+        // The widget's own modal repeats the product image (its avatar), and a
+        // theme that renders its gallery late would otherwise match that copy
+        // and put the pill inside the modal.
+        !img.closest('[class*="aivastra-tryon"]'),
+    );
     let candidates = wanted
       ? imgs.filter((img) =>
           imageSources(img).some((src) => imageKey(src, win.location.href) === wanted),
@@ -1991,6 +2080,8 @@
         bestWidth = width;
       }
     }
+    const gallery = best.closest(GALLERY_SELECTOR);
+    if (gallery) return { el: gallery, needsRelative: !isPositioned(win, gallery) };
     let node = best.parentElement;
     for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
       if (node === doc.body || node === doc.documentElement) break;

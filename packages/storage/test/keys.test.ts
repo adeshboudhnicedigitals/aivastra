@@ -54,6 +54,9 @@ describe('keys formerly built inline', () => {
   });
   it('builds Shopify product garment keys', () => {
     expect(keys.shopifyProductGarment('st-1', 42)).toBe('shopify-garments/st-1/42/garment.jpg');
+    expect(keys.shopifyProductGarmentViewed('st-1', 42, 7)).toBe(
+      'shopify-garments/st-1/42/viewed-7.jpg',
+    );
     expect(keys.shopifyProductGarmentOverride('st-1', '42', 'u-1')).toBe(
       'shopify-garments/st-1/42/garment-u-1.jpg',
     );

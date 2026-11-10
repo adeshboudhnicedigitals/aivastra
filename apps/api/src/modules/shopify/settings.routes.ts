@@ -17,6 +17,7 @@ export async function shopifySettingsRoutes(app: FastifyInstance) {
       // turn this request-start snapshot into a full JSONB replacement.
       let settings = storeSettingsJson();
       if (body.limits) settings = mergeStoreSettingsObject(settings, ['limits'], body.limits);
+      if (body.tryon) settings = mergeStoreSettingsObject(settings, ['tryon'], body.tryon);
       if (body.retention)
         settings = mergeStoreSettingsObject(settings, ['retention'], body.retention);
 

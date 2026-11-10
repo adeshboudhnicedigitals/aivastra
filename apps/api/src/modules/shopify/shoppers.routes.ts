@@ -2,26 +2,30 @@ import { schema } from '@aivastra/db';
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
-/** Only shoppers who actually supplied an email. Anonymous rows exist for
- *  limit counting and are not a mailing list. */
+/** One row per person, not per browser. `shopify_shoppers` holds a row per
+ *  (store, browser) and never merges them, so a logged-in customer who shops on
+ *  a phone and a laptop has two rows sharing one email. Merging by email here
+ *  makes the try-on count the person's total, and the list a mailing list with
+ *  no duplicates. Only shoppers who actually supplied an email appear:
+ *  anonymous rows exist for limit counting and are not a mailing list. */
 async function listShoppers(app: FastifyInstance, storeId: string) {
+  const s = schema.shopifyShoppers;
+  const firstSeenAt = sql<Date>`min(${s.firstSeenAt})`.mapWith(s.firstSeenAt);
   return app.db
     .select({
-      id: schema.shopifyShoppers.id,
-      email: schema.shopifyShoppers.email,
-      emailConsent: schema.shopifyShoppers.emailConsent,
-      phone: schema.shopifyShoppers.phone,
-      firstSeenAt: schema.shopifyShoppers.firstSeenAt,
-      tryOnCount: sql<number>`(
-        SELECT COUNT(*)::int FROM ${schema.jobs}
-        WHERE ${schema.jobs.shopifyShopperId} = ${schema.shopifyShoppers.id}
-      )`,
+      id: sql<string>`(array_agg(${s.id} order by ${s.firstSeenAt}))[1]`,
+      email: sql<string>`min(${s.email})`,
+      // Marketable if any of the person's browsers recorded an opt-in.
+      emailConsent: sql<boolean>`bool_or(${s.emailConsent})`,
+      phone: sql<string | null>`max(${s.phone})`,
+      firstSeenAt,
+      tryOnCount: sql<number>`count(${schema.jobs.id})::int`,
     })
-    .from(schema.shopifyShoppers)
-    .where(
-      and(eq(schema.shopifyShoppers.storeId, storeId), isNotNull(schema.shopifyShoppers.email)),
-    )
-    .orderBy(desc(schema.shopifyShoppers.firstSeenAt));
+    .from(s)
+    .leftJoin(schema.jobs, eq(schema.jobs.shopifyShopperId, s.id))
+    .where(and(eq(s.storeId, storeId), isNotNull(s.email)))
+    .groupBy(sql`lower(${s.email})`)
+    .orderBy(desc(firstSeenAt));
 }
 
 /** RFC4180 minimal quoting. Emails cannot contain commas, but consent and

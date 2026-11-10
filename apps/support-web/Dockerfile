@@ -9,6 +9,7 @@ COPY apps/api/package.json apps/api/
 COPY apps/catalogues-web/package.json apps/catalogues-web/
 COPY apps/chatbot/package.json apps/chatbot/
 COPY apps/dispatcher/package.json apps/dispatcher/
+COPY apps/merchant-web/package.json apps/merchant-web/
 COPY apps/shopify/package.json apps/shopify/
 COPY apps/support-web/package.json apps/support-web/
 COPY packages/db/package.json packages/db/

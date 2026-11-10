@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -83,6 +84,9 @@ export interface ShopifyStoreSettings {
   emailBonusClaimedAt?: string;
   limits?: ShopifyStoreLimits;
   retention?: ShopifyStoreRetention;
+  // Send the product image the shopper is viewing instead of the featured one.
+  // Off unless the merchant turns it on.
+  tryon?: { useViewedImage?: boolean };
   widget?: ShopifyWidgetConfig;
   widgetConfigSynced?: boolean;
   activation?: ShopifyActivationSettings;
@@ -581,5 +585,40 @@ export const shopifyExcludedCollections = pgTable(
   },
   (t) => ({
     uq: unique().on(t.storeId, t.shopifyCollectionId),
+  }),
+);
+
+/**
+ * Paid orders that Shopify's orders/paid webhook delivered and that we could
+ * tie to a try-on: same shopper, same product, order placed within the
+ * attribution window after the try-on (see modules/shopify/attribution.ts).
+ *
+ * Only orders with a match are stored, so this table is the revenue ledger for
+ * the Analytics page and nothing more. `revenue` is the value of the matched
+ * line items only (net of line discounts), not the order total — a shopper who
+ * tried on one shirt and added five unrelated items must not credit the app
+ * with the whole basket.
+ *
+ * The unique (store, order) key makes a redelivered webhook a no-op.
+ * `shopper_id` is SET NULL: erasing a shopper must not delete the merchant's
+ * revenue history, and the row holds no contact data of its own.
+ */
+export const shopifyAttributedOrders = pgTable(
+  'shopify_attributed_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    shopifyOrderId: bigint('shopify_order_id', { mode: 'number' }).notNull(),
+    shopperId: uuid('shopper_id').references(() => shopifyShoppers.id, { onDelete: 'set null' }),
+    currency: text('currency').notNull(),
+    revenue: numeric('revenue', { precision: 14, scale: 2 }).notNull(),
+    orderedAt: timestamp('ordered_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique().on(t.storeId, t.shopifyOrderId),
+    byStoreTime: index('shopify_attributed_orders_store_time_idx').on(t.storeId, t.orderedAt),
   }),
 );

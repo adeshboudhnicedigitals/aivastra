@@ -12,7 +12,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import { apiKeys } from './api-keys.js';
 import { catalogItems } from './catalog.js';
-import { merchants } from './merchant.js';
+import { merchantBranches, merchantStaff, merchants } from './merchant.js';
+import { instoreSessions, merchantDevices } from './merchant-device.js';
 import {
   blousePoses,
   garmentSubcategories,
@@ -52,6 +53,13 @@ export const jobs = pgTable(
     merchantId: uuid('merchant_id').references(() => merchants.id, {
       onDelete: 'set null',
     }),
+    // v1.0 in-store attribution. All nullable and SET NULL: legacy try-ons leave them
+    // null, and deleting a device/branch/session/staff row must never delete a billing
+    // record (same reasoning as shopifyShopperId above).
+    branchId: uuid('branch_id').references(() => merchantBranches.id, { onDelete: 'set null' }),
+    deviceId: uuid('device_id').references(() => merchantDevices.id, { onDelete: 'set null' }),
+    sessionId: uuid('session_id').references(() => instoreSessions.id, { onDelete: 'set null' }),
+    staffId: uuid('staff_id').references(() => merchantStaff.id, { onDelete: 'set null' }),
     // Set only by /v1/dev/* jobs — stamps which API key created the job so the
     // developer dashboard can report per-key usage without a second credit balance.
     apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'set null' }),
@@ -110,6 +118,12 @@ export const jobs = pgTable(
     byParent: index('jobs_parent_job_id_idx')
       .on(t.parentJobId)
       .where(sql`${t.parentJobId} is not null`),
+    // Merchant-web dashboards slice jobs by branch / device / in-store session / staff
+    // member. These attribution columns are NULL for every non-merchant job, so partial.
+    byBranch: index('jobs_branch_idx').on(t.branchId).where(sql`${t.branchId} is not null`),
+    byDevice: index('jobs_device_idx').on(t.deviceId).where(sql`${t.deviceId} is not null`),
+    bySession: index('jobs_session_idx').on(t.sessionId).where(sql`${t.sessionId} is not null`),
+    byStaff: index('jobs_staff_idx').on(t.staffId).where(sql`${t.staffId} is not null`),
   }),
 );
 

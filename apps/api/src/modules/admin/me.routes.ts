@@ -26,11 +26,27 @@ export async function adminMeRoutes(app: FastifyInstance) {
 
     const perms = await getRolePermissions(app, req.adminRole!);
 
+    // SUPER_ADMIN can never have a row here (role-nav-overrides.routes.ts excludes
+    // it from the editable roles), so this query is skipped rather than run and
+    // discarded for the one role that would always come back empty anyway.
+    const navOverrides: Record<string, boolean> = {};
+    if (req.adminRole !== 'SUPER_ADMIN') {
+      const rows = await app.db
+        .select({
+          navKey: schema.roleNavOverrides.navKey,
+          visible: schema.roleNavOverrides.visible,
+        })
+        .from(schema.roleNavOverrides)
+        .where(eq(schema.roleNavOverrides.role, req.adminRole!));
+      for (const row of rows) navOverrides[row.navKey] = row.visible;
+    }
+
     return {
       userId: req.userId,
       email: user.email,
       role: req.adminRole,
       permissions: Array.from(perms),
+      navOverrides,
       preferences: adminUser?.preferences ?? {},
     };
   });

@@ -88,6 +88,21 @@ export async function upsertGoogleUser(
 
   if (byEmail) {
     if (byEmail.isBanned) throw new AppError('BANNED', 403, 'account banned');
+    // A staff login is provisioned by a merchant admin with a password; letting a
+    // Google identity for the same address attach to it would hand that account to
+    // whoever controls the Google mailbox. Existing links (step 1) are unaffected.
+    const [staffRow] = await tx
+      .select({ id: schema.merchantStaff.id })
+      .from(schema.merchantStaff)
+      .where(eq(schema.merchantStaff.userId, byEmail.id))
+      .limit(1);
+    if (staffRow) {
+      throw new AppError(
+        'STAFF_GOOGLE_LINK_REFUSED',
+        403,
+        'this email is a merchant staff login; sign in with email and password',
+      );
+    }
     uid = byEmail.id;
     // Google confirmed ownership of the address.
     await tx.update(schema.users).set({ emailVerified: true }).where(eq(schema.users.id, uid));

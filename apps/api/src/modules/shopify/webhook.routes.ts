@@ -5,6 +5,7 @@ import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
 import { sendAutorefillCapApproachingEmail } from '../../lib/mailer.js';
 import { appLinkFor } from './alert-scheduler.js';
+import { attributeOrder, type OrderPaidPayload } from './attribution.js';
 import { refreshAutorefillState } from './autorefill.js';
 import { collectShopperData, type RedactResult, redactShopperData } from './gdpr.js';
 import { defaultFetchPurchase, grantForPurchase, type OneTimePurchaseState } from './purchase.js';
@@ -82,6 +83,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
     'app_purchases_one_time_update',
     'app_subscriptions_update',
     'app_subscriptions_approaching_capped_amount',
+    'orders_paid',
   ] as const;
 
   for (const topic of topics) {
@@ -103,7 +105,7 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
         // see the app_purchases_one_time_update branch below for why only
         // admin_graphql_api_id (never status/test) is read from it.
         app_purchase_one_time?: { admin_graphql_api_id?: string };
-      };
+      } & OrderPaidPayload;
 
       // Post-processing here is fast local work (a 1-2 row Postgres UPDATE or a
       // Redis XADD), never a slow outbound call — so we await it before
@@ -334,6 +336,16 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
               { topic, storeId: store.id, status: mapped },
               'auto-refill subscription status updated',
             );
+            break;
+          }
+          case 'orders_paid': {
+            // Revenue attribution. A failure here is logged and swallowed like
+            // the other local-work topics: a missed order only understates the
+            // Analytics revenue figure, it never touches credits.
+            if (!store) break;
+            const credited = await attributeOrder(app.db, store.id, payload);
+            if (credited)
+              req.log.info({ topic, storeId: store.id, orderId: payload.id }, 'order attributed');
             break;
           }
           case 'app_subscriptions_approaching_capped_amount': {

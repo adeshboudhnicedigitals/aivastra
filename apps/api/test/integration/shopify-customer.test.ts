@@ -616,7 +616,12 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: true, verboseErrors: false, loginRequired: false });
+      expect(res.json()).toEqual({
+        enabled: true,
+        verboseErrors: false,
+        loginRequired: false,
+        useViewedImage: false,
+      });
     });
 
     it('stays disabled under global mode for a product excluded despite it', async () => {
@@ -646,7 +651,12 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: false, verboseErrors: false, loginRequired: false });
+      expect(res.json()).toEqual({
+        enabled: false,
+        verboseErrors: false,
+        loginRequired: false,
+        useViewedImage: false,
+      });
     });
 
     it('is disabled under selective mode for a product with no individual/collection enable', async () => {
@@ -668,7 +678,12 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: false, verboseErrors: false, loginRequired: false });
+      expect(res.json()).toEqual({
+        enabled: false,
+        verboseErrors: false,
+        loginRequired: false,
+        useViewedImage: false,
+      });
     });
 
     it('is enabled under selective mode for an individually enabled, routed product', async () => {
@@ -681,7 +696,12 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: true, verboseErrors: false, loginRequired: false });
+      expect(res.json()).toEqual({
+        enabled: true,
+        verboseErrors: false,
+        loginRequired: false,
+        useViewedImage: false,
+      });
     });
 
     it('is enabled once synced with no basket or rule, since every product runs the one workflow', async () => {
@@ -694,7 +714,12 @@ describe('shopify customer routes', () => {
         headers: { 'x-widget-key': store.storeKey },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ enabled: true, verboseErrors: false, loginRequired: false });
+      expect(res.json()).toEqual({
+        enabled: true,
+        verboseErrors: false,
+        loginRequired: false,
+        useViewedImage: false,
+      });
     });
 
     it('rejects a non-numeric product id', async () => {

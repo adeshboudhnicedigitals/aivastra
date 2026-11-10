@@ -69,6 +69,8 @@ const Env = z.object({
   // passed to Credential Manager as serverClientId).
   GOOGLE_DEVICE_AUDIENCES: z.string().optional(),
   WEB_URL: z.string().url().default('http://localhost:3000'),
+  // Where the Google callback hands a Merchant Web sign-in (/v1/auth/google/init?portal=merchant).
+  MERCHANT_WEB_URL: z.string().url().default('http://localhost:3010'),
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),
   // GPU fleet alert emails. Opt-in: with no recipients nothing is ever sent, which is what keeps a
@@ -91,7 +93,7 @@ const Env = z.object({
   // .../apps/...) so that Shopify re-opens the app with the host/id_token params
   // App Bridge requires. Never redirect at the SPA's own URL directly.
   SHOPIFY_APP_URL: optionalUrl(),
-  SHOPIFY_SCOPES: z.string().default('read_products,write_products,read_themes'),
+  SHOPIFY_SCOPES: z.string().default('read_products,write_products,read_themes,read_orders'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
   // 32-byte key, base64-encoded (44 chars). Required only when Google Drive

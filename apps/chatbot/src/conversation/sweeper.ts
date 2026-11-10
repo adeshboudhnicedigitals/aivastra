@@ -4,7 +4,11 @@ import type { ChatbotDeps } from '../server.js';
 import { emailFallback } from './escalation.js';
 import { appendMessage, transition } from './service.js';
 
-const AGENT_OFFLINE_GRACE_MS = 60_000;
+// 60s used to be tight enough that an ordinary blip (a brief network drop, a
+// laptop sleeping for a moment, a tab backgrounding right as the server-side
+// 15s heartbeat was due) could outrun the auto-reconnect in chatws.ts and get
+// an agent declared "dropped" before they ever got a chance to come back.
+const AGENT_OFFLINE_GRACE_MS = 3 * 60_000;
 
 export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
   const idleCutoff = new Date(Date.now() - deps.env.CHATBOT_IDLE_TIMEOUT_MIN * 60_000);
@@ -89,6 +93,22 @@ export async function runChatSweeper(deps: ChatbotDeps): Promise<void> {
     if (!conv.agentId) continue;
     const score = await deps.redis.zscore('chatbot:agent:presence', conv.agentId);
     if (score && Number(score) > Date.now() - AGENT_OFFLINE_GRACE_MS) continue;
+    // A ticket the agent already replied to is "answered" from the customer's
+    // side regardless of whether that agent's socket is up right now — bouncing
+    // it back to the unclaimed queue would make an already-answered chat look
+    // unanswered to every other agent on a fresh page load. Only a ticket with
+    // no agent reply yet needs to be freed for someone else to pick up.
+    const [agentReply] = await deps.db
+      .select({ id: schema.chatbotMessages.id })
+      .from(schema.chatbotMessages)
+      .where(
+        and(
+          eq(schema.chatbotMessages.conversationId, conv.id),
+          eq(schema.chatbotMessages.role, 'agent'),
+        ),
+      )
+      .limit(1);
+    if (agentReply) continue;
     await deps.redis.del(`chatbot:conv:${conv.id}:lock`);
     await deps.db
       .update(schema.chatbotConversations)

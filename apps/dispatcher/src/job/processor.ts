@@ -3576,9 +3576,13 @@ async function processWidgetJob(
     return;
   }
 
-  const garmentNodeId = templateRow.tryonGarmentNodeId;
+  // Quick try-on templates uploaded before the admin route stored the photo input in the person
+  // column kept it in the garment column; read it from there so those rows still run.
+  const legacyQuickPhotoNode = isQuickTryon ? templateRow.tryonGarmentNodeId : null;
+  const garmentNodeId =
+    legacyQuickPhotoNode && !templateRow.tryonPersonNodeId ? null : templateRow.tryonGarmentNodeId;
   const garmentNodeId2 = templateRow.tryonGarmentNodeId2;
-  const customerPhotoNodeId = templateRow.tryonPersonNodeId;
+  const customerPhotoNodeId = templateRow.tryonPersonNodeId ?? legacyQuickPhotoNode;
   const outputNodeId = templateRow.tryonOutputNodeId;
 
   if ((!isQuickTryon && !garmentNodeId) || !customerPhotoNodeId || !outputNodeId) {
@@ -3644,14 +3648,15 @@ async function processWidgetJob(
   // Merchant/kiosk widget jobs route to workers with 'merchant' in their allowedJobTypes
   // (or an empty allowedJobTypes, i.e. "accepts any") — the same admin-managed pool the
   // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
-  // the precedent this mirrors.
+  // the precedent this mirrors. Quick try-on claims its own 'quick_tryon' pool so the
+  // admin can dedicate workers to it.
+  const pool = isQuickTryon ? WORKER_POOL.QUICK_TRYON : WORKER_POOL.MERCHANT;
   const performanceKey = templateRow ? getPerformanceKey(templateRow) : undefined;
   const reservation = await measureJobStage(jobLog, 'worker_selection', () =>
     reserveFor(cfg, {
       jobId,
       log: jobLog,
-      select: (token) =>
-        selectWorker(redis, WORKER_POOL.MERCHANT, performanceKey, { jobId, log: jobLog, token }),
+      select: (token) => selectWorker(redis, pool, performanceKey, { jobId, log: jobLog, token }),
     }),
   );
   if (!reservation) {
@@ -3677,7 +3682,7 @@ async function processWidgetJob(
         owner: cfg.owner,
         cfg,
         userId: '',
-        pool: WORKER_POOL.MERCHANT,
+        pool,
         redis,
         jobId,
         stream,
@@ -3804,12 +3809,12 @@ async function processWidgetJob(
       }),
     );
 
-    logSelection(cfg.comfyRedis, w, WORKER_POOL.MERCHANT, performanceKey ?? '', jobLog);
+    logSelection(cfg.comfyRedis, w, pool, performanceKey ?? '', jobLog);
     const completion = await measureJobStage(jobLog, 'comfy_completion_observation', () =>
       observeCompletion(
         cfg.comfyRedis,
         w,
-        WORKER_POOL.MERCHANT,
+        pool,
         performanceKey ?? '',
         workflow,
         jobLog,

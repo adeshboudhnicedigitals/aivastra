@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTargets, matchAny } from './lib/targets.mts';
 
 describe('loadTargets', () => {
-  it('loads the eight deployable targets', () => {
+  it('loads the nine deployable targets', () => {
     const config = loadTargets('config/ci-targets.json');
     expect(config.schemaVersion).toBe(1);
     expect(config.targets.map((t) => t.name).sort()).toEqual([
@@ -11,6 +11,7 @@ describe('loadTargets', () => {
       'chatbot',
       'dispatcher',
       'gpu-ops',
+      'merchant-web',
       'shopify-admin',
       'support',
       'web',
