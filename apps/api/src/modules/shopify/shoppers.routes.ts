@@ -28,8 +28,7 @@ async function listShoppers(app: FastifyInstance, storeId: string) {
     .orderBy(desc(firstSeenAt));
 }
 
-/** RFC4180 minimal quoting. Emails cannot contain commas, but consent and
- *  dates are rendered here too and a stray quote must not corrupt the file. */
+/** RFC4180 minimal quoting, so a stray quote or comma cannot corrupt the file. */
 function csvCell(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
@@ -46,16 +45,10 @@ export async function shopifyShoppersRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       const rows = await listShoppers(app, store.id);
-      const lines = ['email,consent,first_seen,try_ons,phone'];
+      const lines = ['email,first_seen,try_ons'];
       for (const r of rows) {
         lines.push(
-          [
-            csvCell(r.email ?? ''),
-            r.emailConsent ? 'yes' : 'no',
-            r.firstSeenAt.toISOString(),
-            String(r.tryOnCount),
-            csvCell(r.phone ?? ''),
-          ].join(','),
+          [csvCell(r.email ?? ''), r.firstSeenAt.toISOString(), String(r.tryOnCount)].join(','),
         );
       }
       return reply

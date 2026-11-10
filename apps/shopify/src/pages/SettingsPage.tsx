@@ -4,6 +4,7 @@ import { AppFont } from '../components/AppFont';
 import { AppPage } from '../components/AppPage';
 import { AvCard } from '../components/AvCard';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { InfoTip } from '../components/InfoTip';
 import { Glyph } from '../components/PageHead';
 import { PillTabs } from '../components/PillTabs';
 import { apiFetch } from '../lib/api';
@@ -22,18 +23,25 @@ import type { ShopifyMe, ShopifyStoreLimits, ShopifyStoreRetention } from '../ty
 
 // One row of a settings panel: label and explanation on the left, control on the right.
 function SettingRow({
+  icon,
   title,
   description,
   dim = false,
   children,
 }: {
+  icon?: ReactNode;
   title: string;
   description: string;
   dim?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="av-row">
+    <div className={`av-row${icon ? ' has-icon' : ''}`}>
+      {icon && (
+        <span className="av-tile av2-rowtile" aria-hidden>
+          {icon}
+        </span>
+      )}
       <div style={dim ? { opacity: 0.55 } : undefined}>
         <h2 className="av-rt">{title}</h2>
         <p className="av-rd">{description}</p>
@@ -64,6 +72,8 @@ export default function SettingsPage() {
   const [limits, setLimits] = useState<ShopifyStoreLimits>({});
   const [retention, setRetention] = useState<ShopifyStoreRetention>({});
   const [useViewedImage, setUseViewedImage] = useState(false);
+  const [tryOnAll, setTryOnAll] = useState(false);
+  const [togglingAll, setTogglingAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
@@ -77,6 +87,7 @@ export default function SettingsPage() {
         setLimits(res.store.settings.limits ?? {});
         setRetention(res.store.settings.retention ?? {});
         setUseViewedImage(res.store.settings.tryon?.useViewedImage === true);
+        setTryOnAll(res.store.settings.activation?.mode === 'global');
         setLoading(false);
       })
       .catch((err) => {
@@ -102,6 +113,29 @@ export default function SettingsPage() {
       setError(classifyError(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Applies at once rather than with Save: it is the store-wide on/off switch
+  // (the old Manage page's "all products" mode), and a merchant who flips it
+  // expects shoppers to see the change, not a pending draft. Products excluded
+  // earlier stay excluded -- exclusion always wins (see activation.ts).
+  async function toggleTryOnAll() {
+    if (togglingAll) return;
+    const next = !tryOnAll;
+    setTogglingAll(true);
+    setError(null);
+    try {
+      await apiFetch('/v1/shopify/activation/mode', {
+        method: 'PATCH',
+        body: JSON.stringify({ mode: next ? 'global' : 'selective' }),
+      });
+      setTryOnAll(next);
+      setToastMessage(next ? 'Try-on is on for all products.' : 'Try-on for all products is off.');
+    } catch (err) {
+      setError(classifyError(err));
+    } finally {
+      setTogglingAll(false);
     }
   }
 
@@ -133,32 +167,84 @@ export default function SettingsPage() {
   }
 
   const tabs = [
-    { id: 'limits', content: 'Limits' },
-    { id: 'privacy', content: 'Privacy' },
-    { id: 'placement', content: 'Button placement' },
+    {
+      id: 'limits',
+      content: 'Limits',
+      icon: (
+        <Glyph size={24}>
+          <path d="M3.5 7h17M3.5 17h17" />
+          <circle cx="9" cy="7" r="2.4" />
+          <circle cx="15" cy="17" r="2.4" />
+        </Glyph>
+      ),
+    },
+    {
+      id: 'privacy',
+      content: 'Privacy',
+      icon: (
+        <Glyph size={24}>
+          <path d="M12 3l8 3v6c0 4.5-3.3 8-8 9-4.7-1-8-4.5-8-9V6l8-3z" />
+          <path d="M8.5 12l2.5 2.5 4.5-5" />
+        </Glyph>
+      ),
+    },
+    {
+      id: 'placement',
+      content: 'Button placement',
+      icon: (
+        <Glyph size={24}>
+          <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+          <path d="M3 9h18M6.5 14h4" />
+        </Glyph>
+      ),
+    },
   ];
 
   return (
     <AppFont>
-      <AppPage
-        title="Settings"
-        actions={
+      <AppPage title="Settings" subtitle="Configure how Virtual Try-On works for your shoppers.">
+        <BlockStack gap="400">
           <PillTabs
-            boxed
+            underline
             label="Settings sections"
             tabs={tabs}
             selected={selectedTab}
             onSelect={setSelectedTab}
           />
-        }
-      >
-        <BlockStack gap="400">
           <ErrorBanner error={error} onRetry={load} onDismiss={() => setError(null)} />
 
           {selectedTab === 0 && (
             <>
               <div className="av-panel">
                 <SettingRow
+                  icon={
+                    <Glyph size={28}>
+                      <path d="M3 12V4h8l10 10-8 8L3 12z" />
+                      <circle cx="7.5" cy="8.5" r="1.4" />
+                    </Glyph>
+                  }
+                  title="Enable try-on for all products"
+                  description="On by default. Shoppers see the Try It On button on every synced product. Turn off to stop offering it everywhere: stores that set up per-product or collection rules earlier keep those, and every other store pauses try-on. Products you excluded earlier stay excluded."
+                >
+                  <button
+                    type="button"
+                    className="av-sw"
+                    role="switch"
+                    aria-checked={tryOnAll}
+                    aria-label="Enable try-on for all products"
+                    disabled={togglingAll}
+                    onClick={toggleTryOnAll}
+                  >
+                    <span />
+                  </button>
+                </SettingRow>
+                <SettingRow
+                  icon={
+                    <Glyph size={28}>
+                      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+                      <path d="M3.5 10h17M8 3v4M16 3v4M7.5 14.5h3" />
+                    </Glyph>
+                  }
                   title="Store daily limit"
                   description="The hard ceiling. Once this many try-ons have run today, the widget stops generating until tomorrow, no matter who is asking. This is the only limit that cannot be worked around from a browser."
                 >
@@ -177,6 +263,13 @@ export default function SettingsPage() {
                   />
                 </SettingRow>
                 <SettingRow
+                  icon={
+                    <Glyph size={28}>
+                      <circle cx="9" cy="8" r="3.5" />
+                      <path d="M2.5 20c0-3.5 2.9-6 6.5-6s6.5 2.5 6.5 6" />
+                      <path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.3c2 .6 3.5 2.6 3.5 5.7" />
+                    </Glyph>
+                  }
                   title="Try-ons per shopper"
                   description="Limits try-ons per user. It is friction, not a hard spend cap."
                 >
@@ -191,6 +284,11 @@ export default function SettingsPage() {
                   />
                 </SettingRow>
                 <SettingRow
+                  icon={
+                    <Glyph size={28}>
+                      <path d="M20 11a8 8 0 0 0-14.5-3.5L4 9M4 4v5h5M4 13a8 8 0 0 0 14.5 3.5L20 15M20 20v-5h-5" />
+                    </Glyph>
+                  }
                   title="Resets every"
                   description="How often each shopper's try-on count starts again."
                   dim={limits.perShopperCap == null}
@@ -211,6 +309,12 @@ export default function SettingsPage() {
                   />
                 </SettingRow>
                 <SettingRow
+                  icon={
+                    <Glyph size={28}>
+                      <rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+                      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+                    </Glyph>
+                  }
                   title="Require login"
                   description="Shoppers must log in to use try-on. Email and phone number are collected automatically: from the customer account when present, otherwise the shopper is asked."
                 >
@@ -226,6 +330,12 @@ export default function SettingsPage() {
                   </button>
                 </SettingRow>
                 <SettingRow
+                  icon={
+                    <Glyph size={28}>
+                      <rect x="3" y="5" width="18" height="14" rx="3" />
+                      <path d="M4 7.5l8 5.5 8-5.5" />
+                    </Glyph>
+                  }
                   title="Ask for an email"
                   description="Asks users for their email after this many try-ons."
                 >
@@ -246,6 +356,13 @@ export default function SettingsPage() {
                   />
                 </SettingRow>
                 <SettingRow
+                  icon={
+                    <Glyph size={28}>
+                      <rect x="3" y="4" width="18" height="16" rx="3" />
+                      <circle cx="9" cy="10" r="1.6" />
+                      <path d="M21 16l-5-5-9 9" />
+                    </Glyph>
+                  }
                   title="Use the image the shopper is viewing"
                   description="The try-on uses the product photo the shopper has open in the gallery, such as the colour they picked, instead of always the first image. The shopper sees which image will be used. Off by default: product galleries often include model or lifestyle shots that make a poor garment photo."
                 >
@@ -267,13 +384,13 @@ export default function SettingsPage() {
 
           {selectedTab === 1 && (
             <>
-              <p className="av-sub" style={{ margin: 0, maxWidth: 900 }}>
-                Neither of us can view a shopper's photo or result, but they're stored on our
-                servers and you're responsible for how long that lasts. This schedule deletes them
-                automatically, useful for your own privacy policy, while try-on records used for
-                billing are always kept. Deleting shopper records also resets their limits, so set
-                that window longer than your per-shopper cap.
-              </p>
+              <div className="av2-info-head">
+                <h2 className="av-h2">Data retention</h2>
+                <InfoTip
+                  label="Data retention"
+                  info="Neither of us can view a shopper's photo or result, but they're stored on our servers and you're responsible for how long that lasts. This schedule deletes them automatically, useful for your own privacy policy, while try-on records used for billing are always kept. Deleting shopper records also resets their limits, so set that window longer than your per-shopper cap."
+                />
+              </div>
               <div className="av-panel">
                 <SettingRow
                   title="Shopper photos"

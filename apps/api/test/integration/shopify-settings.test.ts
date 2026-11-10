@@ -55,7 +55,9 @@ describe('shopify settings routes', () => {
       .select()
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.id, storeId));
-    expect(row.settings).toEqual({});
+    // The rejected patch changed nothing; a freshly provisioned store starts in
+    // global (all-products) mode, which is the only setting it has.
+    expect(row.settings).toEqual({ activation: { mode: 'global' } });
   });
 
   it('rejects a limit value outside the allowed option set', async () => {
@@ -153,9 +155,11 @@ describe('shopify settings routes', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
-    expect(res.body).toContain('email,consent,first_seen,try_ons,phone');
-    expect(res.body).toContain('csv@b.com,no,');
-    expect(res.body).toContain(',555 0100 123');
+    expect(res.body).toContain('email,first_seen,try_ons');
+    expect(res.body).toContain('csv@b.com,');
+    // Phone and consent are deliberately not exported.
+    expect(res.body).not.toContain('555 0100 123');
+    expect(res.body).not.toContain('consent');
   });
 
   it('customers_redact deletes the matching shopper row', async () => {

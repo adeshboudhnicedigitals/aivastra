@@ -24,11 +24,9 @@ import {
 import { type ClassifiedError, classifyError } from './lib/errors';
 import { runNavGuard } from './lib/navGuard';
 import { getOnboardingStep, onboardingPath } from './lib/onboarding';
-import AnalyticsPage from './pages/AnalyticsPage';
 import AutorefillCallbackPage from './pages/AutorefillCallbackPage';
 import BillingCallbackPage from './pages/BillingCallbackPage';
 import DashboardPage from './pages/DashboardPage';
-import ManagePage from './pages/ManagePage';
 import OnboardingContactPage from './pages/OnboardingContactPage';
 import OnboardingIntroPage from './pages/OnboardingIntroPage';
 import OnboardingLimitsPage from './pages/OnboardingLimitsPage';
@@ -246,8 +244,10 @@ export default function App() {
             />
             <Route element={<AppChrome me={me} showNav={onboardingComplete} />}>
               <Route path="/" element={<DashboardPage />} />
-              <Route path="/manage" element={<ManagePage />} />
-              <Route path="/analytics" element={<AnalyticsPage />} />
+              {/* Manage and Analytics were folded into Settings and the Dashboard;
+                  merchants may have either bookmarked or pinned in Shopify admin. */}
+              <Route path="/manage" element={<Navigate to="/settings" replace />} />
+              <Route path="/analytics" element={<Navigate to="/" replace />} />
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/support" element={<SupportPage />} />
@@ -255,10 +255,10 @@ export default function App() {
               <Route path="/billing/autorefill-callback" element={<AutorefillCallbackPage />} />
               {/* Merchants may have bookmarked the old path while it was the only
                   product surface. */}
-              <Route path="/products" element={<Navigate to="/manage" replace />} />
+              <Route path="/products" element={<Navigate to="/settings" replace />} />
               {/* Merchants may have bookmarked the old path while Routing was its
                   own page. */}
-              <Route path="/routing" element={<Navigate to="/manage" replace />} />
+              <Route path="/routing" element={<Navigate to="/settings" replace />} />
               <Route path="/embedded" element={<Navigate to="/" replace />} />
               {/* Widget Design page removed — merchants may have it bookmarked or
                   pinned in Shopify admin's nav history. */}
