@@ -30,7 +30,6 @@ import DashboardPage from './pages/DashboardPage';
 import OnboardingContactPage from './pages/OnboardingContactPage';
 import OnboardingIntroPage from './pages/OnboardingIntroPage';
 import OnboardingLimitsPage from './pages/OnboardingLimitsPage';
-import OnboardingProductsPage from './pages/OnboardingProductsPage';
 import OnboardingThemePage from './pages/OnboardingThemePage';
 import PricingPage from './pages/PricingPage';
 import SettingsPage from './pages/SettingsPage';
@@ -219,16 +218,18 @@ export default function App() {
         <AppNavMenu onboardingComplete={onboardingComplete} />
         <Frame navigation={devNavigation}>
           <Routes>
-            <Route path="/onboarding" element={<OnboardingIntroPage />} />
+            <Route path="/onboarding" element={<OnboardingIntroPage me={me} />} />
+            {/* The Sync Products step is gone (import starts from the welcome page);
+                merchants may have it bookmarked. */}
             <Route
               path="/onboarding/products"
-              element={<OnboardingProductsPage me={me} onRefresh={refreshMe} />}
+              element={<Navigate to="/onboarding/contact" replace />}
             />
             {/* Old wizard step, removed when basket choice moved into page 2 —
                 merchants may have it bookmarked. */}
             <Route
               path="/onboarding/routing"
-              element={<Navigate to="/onboarding/products" replace />}
+              element={<Navigate to="/onboarding/contact" replace />}
             />
             <Route
               path="/onboarding/contact"

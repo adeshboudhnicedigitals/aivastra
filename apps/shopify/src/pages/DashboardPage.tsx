@@ -316,6 +316,25 @@ export default function DashboardPage() {
     [],
   );
 
+  // Products added to Shopify outside the app (CSV import, bulk edit, missed
+  // webhooks) are picked up by asking the API to reconcile; the counts then
+  // refresh until they catch up. Manage used to do this when opened. Best-effort.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { behindBy } = await apiFetch<{ behindBy: number }>('/v1/shopify/products/catch-up', {
+        method: 'POST',
+      });
+      for (let i = 0; i < 20 && behindBy > 0 && !cancelled; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        if (!cancelled) await refreshMe();
+      }
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshMe]);
+
   const connectedSince = me?.store.connectedSince;
   useEffect(() => {
     if (!connectedSince) return;

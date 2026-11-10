@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import tutorialImage from '../assets/theme-tutorial.png';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
 import { Glyph, Note, PageHead } from '../components/PageHead';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { canShowThemePage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
+import { getOnboardingStep } from '../lib/onboarding';
 import type { ShopifyMe } from '../types';
 
 const THEME_STEPS = [
@@ -86,9 +86,6 @@ export default function OnboardingThemePage({
   }
 
   const currentStep = getOnboardingStep(me);
-  if (!canShowThemePage(currentStep)) {
-    return <Navigate to={onboardingPath(currentStep)} replace />;
-  }
 
   async function openThemeEditor(which: 'block' | 'embed') {
     setOpeningEditor(which);

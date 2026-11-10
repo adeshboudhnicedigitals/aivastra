@@ -1,25 +1,22 @@
 import type { ShopifyMe } from '../types';
 
-export type OnboardingStep = 'intro' | 'products' | 'theme';
-export function isProductsDone(me: ShopifyMe): boolean {
-  return me.stats.syncedProductCount > 0;
-}
+export type OnboardingStep = 'intro' | 'theme';
+// Product sync starts from the welcome page and runs in the background, so no
+// step waits on it. Synced products only tell a returning merchant where to
+// resume: with some, they have been through the first screens.
 export function getOnboardingStep(me: ShopifyMe): OnboardingStep | null {
   const themeDone =
     (me.store.settings.themeBlockConfirmed ?? false) ||
     (me.store.settings.themeStepSkipped ?? false);
-  if (!isProductsDone(me) && !themeDone) return 'intro';
-  if (!isProductsDone(me)) return 'products';
-  if (!themeDone) return 'theme';
-  return null;
+  if (themeDone) return null;
+  return me.stats.syncedProductCount > 0 ? 'theme' : 'intro';
 }
-export type OnboardingPage = 'intro' | 'products' | 'contact' | 'limits' | 'theme';
-export const PAGE_ORDER: OnboardingPage[] = ['intro', 'products', 'contact', 'limits', 'theme'];
+export type OnboardingPage = 'intro' | 'contact' | 'limits' | 'theme';
+export const PAGE_ORDER: OnboardingPage[] = ['intro', 'contact', 'limits', 'theme'];
 export type StepPage = Exclude<OnboardingPage, 'intro'>;
 export const STEP_PAGES = PAGE_ORDER.filter((p): p is StepPage => p !== 'intro');
 // Names shown in the step row and on the "Continue to ..." button.
 export const STEP_LABELS: Record<StepPage, string> = {
-  products: 'Sync Products',
   contact: 'Contact Details',
   limits: 'Customize Widget',
   theme: 'Activate Storefront',
@@ -37,15 +34,6 @@ export function onboardingPath(step: OnboardingStep | null): string {
   if (step === null) return '/';
   if (step === 'intro') return '/onboarding';
   return `/onboarding/${step}`;
-}
-export function canShowProductsPage(step: OnboardingStep | null): boolean {
-  return step === 'intro' || step === 'products' || step === 'theme';
-}
-export function canShowThemePage(step: OnboardingStep | null): boolean {
-  return step === 'theme' || step === null;
-}
-export function canShowPostProductsPage(step: OnboardingStep | null): boolean {
-  return step === 'theme' || step === null;
 }
 export function isTryOnOff(me: ShopifyMe): boolean {
   return me.stats.enabledProductCount === 0;
