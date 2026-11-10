@@ -50,6 +50,10 @@ export const WORKER_POOL = {
   SAREE: 'saree',
   SHOPIFY: 'shopify',
   MERCHANT: 'merchant',
+  // Merchant quick try-on (customer photo alone, one admin-chosen workflow). Its own
+  // pool so the admin can pin it to specific workers; an empty allowedJobTypes still
+  // includes it, but a worker tagged only ['merchant'] no longer serves it.
+  QUICK_TRYON: 'quick_tryon',
   // WhatsApp bot garment recognition (spec 8a). An ordinary pool: an empty
   // allowedJobTypes includes it (D52 revised).
   CLASSIFY: 'classify',
