@@ -1,3 +1,16 @@
+# 2026-11-10 — merchant-web prod port moved 3010 → 3200 (local edit, not committed)
+
+- **Failed / Not Done:**
+  - First production deploy of `merchant-web` (CI run 42788543759, merge of #675) failed:
+    `Bind for 127.0.0.1:3010 failed: port is already allocated`. Every other service recreated and started;
+    `merchant.aivastra.com` has no backend. What holds 3010 on the VPS is **not identified** (needs
+    `ss -ltnp 'sport = :3010'` and `docker ps --filter publish=3010` on the host).
+- **Done:**
+  - `infra/docker-compose.prod.yml`: host port `3200:3010` (container port unchanged; staging stays 3110).
+- **Open Questions / outside the repo:**
+  - 3200 was checked free on the VPS (3011 is NOT free: something listens on 127.0.0.1:3011, also unidentified).
+  - The CloudPanel vhost for `merchant.aivastra.com` must proxy to `localhost:3200` (not created as of the 2026-11-07 entry).
+
 # 2026-11-07 — v1.0 step 3c: Merchant Web dashboards (committed locally, not pushed)
 
 - **Done:**
