@@ -958,3 +958,872 @@ html:has(.av-page)::-webkit-scrollbar,
   outline-offset: 1px;
   border-color: transparent;
 }
+
+/* ---- v2 chrome: logo, section tabs, Help & Support and avatar share one bar ---- */
+.av-page .av-hdr {
+  min-height: 84px;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.av-page .av-hdr .av-nav {
+  flex: 1;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 14px;
+  padding: 0 0 0 28px;
+  /* Visible, not auto: any non-visible overflow also clips the active tab's
+     shadow. Scrolling is only turned back on below 900px, with room for it. */
+  overflow: visible;
+}
+.av-page .av-hdr .av-tab {
+  height: 46px;
+  padding: 0 22px;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 17px;
+  font-weight: 500;
+}
+.av-page .av-hdr .av-tab:hover:not(.on) {
+  background: #f1ecfd;
+}
+.av-page .av-hdr .av-tab.on {
+  background: linear-gradient(180deg, #5b21ef, #4210c9);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 6px 14px -2px rgba(74, 31, 220, 0.34);
+}
+.av-hdr-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+.av-help {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e8e5f4;
+  box-shadow: 0 2px 8px rgba(80, 50, 200, 0.06);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
+}
+.av-help:focus-visible {
+  outline: 3px solid var(--av-ink);
+  outline-offset: 3px;
+}
+.av-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e8e5f4;
+  box-shadow: 0 2px 8px rgba(80, 50, 200, 0.06);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: #4b1fd6;
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .av-page .av-hdr .av-nav {
+    order: 3;
+    flex-basis: 100%;
+    padding: 4px 8px 18px;
+    margin: 0 -8px;
+    overflow-x: auto;
+  }
+}
+@media (max-width: 760px) {
+  .av-help span {
+    display: none;
+  }
+  .av-help {
+    padding: 0 10px;
+  }
+}
+
+/* ---- v2 Dashboard ---- */
+.av2-range {
+  width: 186px;
+}
+.av2-top {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 18px;
+}
+.av2-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+.av2-balance {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 22px;
+  padding: 24px 26px;
+  background: linear-gradient(135deg, #f3eeff 0%, #fff 75%);
+}
+.av2-balance-main {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.av2-plan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.av2-tile {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+}
+.av2-tile.sm {
+  width: 46px;
+  height: 46px;
+}
+.av2-tile.lg {
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+}
+.av2-kpi {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.av2-kpi.big {
+  gap: 22px;
+}
+.av2-kpi.big .av2-tile {
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+}
+.av2-kpi > div:last-child {
+  flex: 1;
+  min-width: 0;
+}
+.av2-kpi-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.av2-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.av2-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.av2-sec-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.av2-sec-title .av-sub {
+  margin: 2px 0 0;
+}
+.av2-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.av2-tool-search {
+  width: 200px;
+}
+.av2-tool-search.wide {
+  width: 240px;
+}
+.av2-tool-select {
+  width: 150px;
+}
+.av2-tool-select.wide {
+  width: 210px;
+}
+.av2-scroll {
+  overflow-x: auto;
+  margin-top: 20px;
+}
+.av2-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+.av2-table th {
+  text-align: left;
+  padding: 12px 20px;
+  background: #f3f1fa;
+  font-weight: 600;
+  color: #1b1838;
+}
+.av2-table th:first-child {
+  border-radius: 10px 0 0 10px;
+}
+.av2-table th:last-child {
+  border-radius: 0 10px 10px 0;
+}
+.av2-table td {
+  padding: 13px 20px;
+  border-bottom: 1px solid #efedf8;
+  font-weight: 500;
+}
+.av2-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.av2-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  font-size: 14px;
+  color: #34324f;
+}
+.av2-pages {
+  display: flex;
+  gap: 8px;
+}
+.av2-pages button {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: 600 15px inherit;
+  cursor: pointer;
+}
+.av2-pages button.on {
+  background: #4a1de6;
+  color: #fff;
+}
+.av2-pages button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (max-width: 1100px) {
+  .av2-top,
+  .av2-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- v2 type scale + containers (values from the Claude design's ui.css) ----
+   Scoped to .av-page so the onboarding wizard keeps its own scale. */
+.av-page .av-hdr {
+  padding: 0 36px;
+}
+.av-page .av-hdr .av-logo {
+  width: 44px;
+}
+.av-page .av-hdr .av-bn {
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+.av-page .av-hdr .av-tab {
+  gap: 12px;
+}
+.av-page .av-body {
+  max-width: 1536px;
+  padding: 34px 36px 80px;
+}
+.av-page .av-app .av-pagehead {
+  margin-bottom: 26px;
+  align-items: flex-start;
+}
+.av-page .av-app .av-pagehead h1 {
+  font-size: 32px;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.av-page .av-app .av-pagehead p {
+  margin: 8px 0 0;
+  font-size: 16px;
+  line-height: 1.4;
+  color: #34324f;
+}
+.av-page .av-app .av-c {
+  border-radius: 18px;
+  padding: 24px 26px;
+  border: 1px solid #eae7f6;
+  box-shadow: 0 10px 30px rgba(80, 50, 200, 0.07);
+}
+.av-page .av-app .av-k {
+  font-size: 17px;
+  font-weight: 500;
+  color: #2a2848;
+}
+.av-page .av-app .av-big {
+  font-size: 36px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  margin-top: 4px;
+}
+.av-page .av-app .av-sub {
+  font-size: 17px;
+  line-height: 1.45;
+  color: #34324f;
+}
+.av-page .av-app .av-h2 {
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.av-page .av-app .av-chip {
+  font-size: 14px;
+  height: 28px;
+  font-weight: 700;
+  padding: 0 12px;
+  gap: 4px;
+}
+.av-page .av-app .av-tile {
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  background: #f1ecfd;
+  color: #5a21ee;
+}
+.av-page .av-app .av-btn-primary,
+.av-page .av-app .av-btn-ghost {
+  height: 52px;
+  padding: 0 28px;
+  border-radius: 10px;
+  font-size: 17px;
+  gap: 10px;
+}
+.av-page .av-app .av-btn-ghost {
+  border: 1.5px solid #dcd8ee;
+}
+.av-page .av-app .Polaris-Select__Content,
+.av-page .av-app .av-selw .Polaris-Select__Content {
+  min-height: 48px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.av-page .av-app .av-selw .Polaris-Select__Input,
+.av-page .av-app .Polaris-Select__Input {
+  font-size: 17px;
+  font-weight: 500;
+}
+.av-page .av-app .Polaris-TextField__Input {
+  min-height: 48px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.av-page .av-app .Polaris-Select__Backdrop,
+.av-page .av-app .Polaris-TextField__Backdrop {
+  border-radius: 10px;
+}
+.av-page .av-app .Polaris-Text--headingMd {
+  font-size: 18px;
+}
+.av-page .av-app .av-rows {
+  font-size: 16px;
+}
+
+/* ---- v2 Dashboard sizes ---- */
+.av-page .av-app .av2-kpi.big .av-big,
+.av-page .av-app .av2-kpi-row .av-big {
+  font-size: 32px;
+}
+.av-page .av-app .av2-balance .av-big {
+  font-size: 32px;
+}
+.av-page .av-app .av2-balance {
+  padding: 24px 26px;
+}
+.av-page .av-app .av2-sec-head .av-h2 {
+  font-size: 19px;
+}
+.av-page .av-app .av2-sec-head .av-sub {
+  font-size: 15px;
+}
+.av2-table {
+  font-size: 16px;
+}
+.av2-table th {
+  font-size: 15px;
+}
+
+/* ---- v2 Billing ---- */
+.av2-bill-page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.av2-bill {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  align-items: stretch;
+}
+.av2-bill > .av-c {
+  display: flex;
+  flex-direction: column;
+}
+.av2-bal {
+  padding: 4px 2px 0;
+}
+.av2-bal-label {
+  font-size: 17px;
+  font-weight: 600;
+}
+.av-page .av-app .av2-bal .av-big {
+  font-size: 36px;
+  margin-top: 6px;
+}
+.av2-hr {
+  height: 1px;
+  background: #ece9f7;
+  border: 0;
+  margin: 18px 0;
+}
+.av2-bal-runway {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.av2-bal-try {
+  font-size: 18px;
+  font-weight: 500;
+}
+.av2-vsep {
+  width: 1px;
+  height: 48px;
+  background: #e6e3f2;
+}
+.av2-bal-days {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #2a2848;
+  font-size: 14px;
+}
+.av2-bal-days b {
+  display: block;
+  font-size: 18px;
+  margin: 2px 0;
+  color: #0f0d24;
+}
+.av2-bal-days small {
+  font-size: 13px;
+  color: #34324f;
+}
+.av2-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.av2-actions > button {
+  flex: 1 1 200px;
+}
+.av2-packs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 16px;
+}
+.av2-packs.lead {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.av2-pack {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 22px;
+  border-radius: 14px;
+  border: 1.5px solid #e6e3f2;
+  background: #fff;
+}
+.av2-pack.hot {
+  border-color: #7c4df5;
+  background: linear-gradient(180deg, #f6f2ff, #fff);
+  box-shadow: 0 8px 22px rgba(90, 33, 238, 0.12);
+}
+.av2-pack-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.av2-pack h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.av2-pack-n {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin-top: 18px;
+}
+.av2-pack-t {
+  font-size: 15px;
+  color: #34324f;
+  margin-top: 8px;
+}
+.av2-pack-p {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin-top: 20px;
+}
+.av2-pack-note {
+  font-size: 13px;
+  margin-top: 8px;
+  color: #34324f;
+}
+.av-page .av-app .av2-pack .av-btn-primary,
+.av-page .av-app .av2-pack .av-btn-ghost {
+  width: 100%;
+  height: 44px;
+  margin-top: 22px;
+  font-size: 16px;
+  padding: 0 20px;
+  color: #4a14e0;
+  border-color: #c9b6f7;
+}
+.av-page .av-app .av2-pack .av-btn-primary {
+  color: #fff;
+}
+
+/* ---- v2 Settings ---- */
+.av-page .av-app .av-pilltabs.underline {
+  display: flex;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid #ece9f7;
+  border-radius: 0;
+  box-shadow: none;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+.av-page .av-app .underline .av-pilltab {
+  gap: 12px;
+  height: 48px;
+  padding: 0 20px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1b1838;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  white-space: nowrap;
+}
+.av-page .av-app .underline .av-pilltab.on {
+  background: #f1ecfd;
+  color: #4a14e0;
+  border-bottom-color: #4a14e0;
+}
+.av-page .av-app .av-panel {
+  padding: 22px 28px 14px;
+  border-radius: 18px;
+  border: 1px solid #eae7f6;
+  box-shadow: 0 10px 30px rgba(80, 50, 200, 0.07);
+}
+.av-page .av-app .av-row {
+  margin: 0;
+  padding: 20px 0;
+  gap: 20px;
+  border-top: 1px solid #ece9f7;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.av-page .av-app .av-row:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+.av-page .av-app .av-row > div:not(.av-selw) {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.av-page .av-app .av-row .av-rt {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.av-page .av-app .av-row .av-rd {
+  font-size: 15px;
+  max-width: none;
+  color: #34324f;
+}
+.av-page .av-app .av-row .av-selw {
+  width: 325px;
+  max-width: 100%;
+}
+.av-page .av-app .av2-rowtile {
+  width: 52px;
+  height: 52px;
+}
+@media (max-width: 1100px) {
+  .av2-bill,
+  .av2-packs,
+  .av2-packs.lead {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .av-page .av-hdr,
+  .av-page .av-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .av-page .av-app .av-pagehead h1 {
+    font-size: 28px;
+  }
+  .av-page .av-app .av-pagehead p {
+    font-size: 15px;
+  }
+}
+
+/* Dropdown chevron from the design (bold, 16px) in place of Polaris's. */
+.av-page .av-app .Polaris-Select__Icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f0d24' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+.av-page .av-app .Polaris-Select__Icon > * {
+  display: none;
+}
+.av-page .av-app .Polaris-Select--disabled .Polaris-Select__Icon {
+  opacity: 0.45;
+}
+
+/* Date range: leading calendar icon, as in the design. */
+.av2-range {
+  position: relative;
+}
+.av2-range-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  /* Polaris layers the select's content and backdrop at z-index 100+, so a small value paints behind them. */
+  z-index: 200;
+  display: flex;
+  color: #0f0d24;
+  pointer-events: none;
+}
+.av-page .av-app .av2-range .Polaris-Select__Content {
+  padding-left: 46px;
+}
+
+/* Dashboard: the date-range select heads the time-based section, not the page. */
+.av2-perf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.av2-perf-head .av-sub {
+  margin: 2px 0 0;
+}
+
+/* Search fields: icon sits vertically centred in the 48px box, dark, and above
+   Polaris's backdrop layer (z-index 100+), which otherwise paints over it. */
+.av-page .av-app .Polaris-TextField__Prefix {
+  position: relative;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  margin-inline: 14px 0;
+  color: #4a4868;
+  line-height: 1;
+}
+.av-page .av-app .Polaris-TextField__Prefix svg {
+  stroke: currentColor;
+  fill: none;
+}
+.av-page .av-app .Polaris-TextField__Prefix {
+  background: transparent;
+}
+.av-page .av-app .av2-tool-search .Polaris-TextField__Backdrop {
+  background: #fff;
+}
+.av-page .av-app .Polaris-TextField__Prefix + .Polaris-TextField__Input {
+  padding-left: 10px;
+}
+
+/* Performance KPIs: three across, two rows. */
+.av2-kpis.av2-perf {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1100px) {
+  .av2-kpis.av2-perf {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .av2-kpis.av2-perf {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Billing: auto-refill form copy and labels follow the reduced scale. */
+.av2-bill .av-sub,
+.av2-bill .Polaris-Labelled__LabelWrapper,
+.av2-bill .Polaris-Text--bodyMd {
+  font-size: 15px;
+}
+.av2-bill .Polaris-Label__Text {
+  font-size: 15px;
+  font-weight: 600;
+}
+.av-page .av-app .av2-bill .av-chip {
+  font-size: 13px;
+  height: 26px;
+}
+.av-page .av-app .av2-bill-page .av-inc {
+  font-size: 15px;
+}
+
+/* Settings: control text follows the reduced scale. */
+.av-page .av-app .av-row .av-selw .Polaris-Select__Content,
+.av-page .av-app .av-row .av-selw .Polaris-Select__Input {
+  font-size: 15px;
+}
+.av-page .av-app .av-row .av-selw .Polaris-Select__Content {
+  min-height: 44px;
+}
+.av-page .av-app .av-row .av-sw {
+  transform: scale(0.9);
+  transform-origin: right center;
+}
+
+/* Info icon that reveals help text on hover/focus. */
+.av2-info {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #34324f;
+  cursor: help;
+}
+.av2-info:hover,
+.av2-info:focus-visible {
+  color: #4a14e0;
+}
+.av2-info:focus-visible {
+  outline: 3px solid var(--av-ink);
+  outline-offset: 3px;
+  border-radius: 50%;
+}
+
+.av2-label-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.av2-label-info {
+  white-space: nowrap;
+}
+
+/* Credits and the try-ons they cover share one row. */
+.av2-bal-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* Balance card matches the auto-refill card's height; its buttons sit on the
+   bottom edge at the same height as the auto-refill button. */
+.av2-bal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.av2-bal > .av2-hr {
+  margin-top: auto;
+}
+.av-page .av-app .av2-bal .av2-actions > button {
+  height: 52px;
+}
+.av2-bal-row {
+  margin-bottom: 18px;
+}
+
+/* App pages sit on a flat #fafafa; the lavender backdrop stays on onboarding. */
+.av-page.av-page-app {
+  background-color: #fafafa;
+  background-image: none;
+}
+
+.av2-info-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Help & Support options (popup and /support page). Scoped to .av-app only, since
+   the popup renders in a portal outside .av-page. */
+.av-app .av2-support {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px;
+}
+.av-app .av2-support-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.av-app .av2-support .av-tile {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+}
+.av-app .av2-support .av-h2 {
+  font-size: 20px;
+  margin: 0;
+}
+.av-app .av2-support .av-sub {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #34324f;
+}
+.av-app .av2-support .av-btn-primary,
+.av-app .av2-support .av-btn-ghost {
+  margin-top: auto;
+  width: 100%;
+  height: 46px;
+  font-size: 16px;
+  border-radius: 10px;
+}
+.av-help {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}

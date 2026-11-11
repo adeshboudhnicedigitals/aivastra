@@ -31,7 +31,7 @@
   --c-mint: #209e46;
   --c-grad-subtle: linear-gradient(135deg, rgba(245, 92, 122, 0.15), rgba(246, 181, 83, 0.15));
   /* Sidebar is always-navy regardless of theme; navbar only adopts it in dark mode (see html.dark) */
-  --c-side-nav: #131524;
+  --c-side-nav: #0c0c15;
   --c-navbar-bg: var(--c-white);
   /* Default GradBtn fill; job-submission buttons pass `final` to stay on the fixed
      pink->orange `grad` gradient in every theme instead of this token. */
@@ -67,6 +67,11 @@
   --c-merchant-warning-tint: rgba(245, 158, 11, 0.08);
   --c-merchant-muted-tint: rgba(107, 114, 128, 0.08);
   --c-merchant-blue-tint: rgba(100, 100, 240, 0.08);
+  /* Merchant dashboard brand blue and positive-delta green */
+  --c-merchant-brand: #3d86f9;
+  --c-merchant-brand-tint: rgba(61, 134, 249, 0.08);
+  --c-merchant-up: #3cb169;
+  --c-merchant-up-tint: rgba(60, 177, 105, 0.1);
   --c-pink-tint: rgba(245, 92, 122, 0.12);
   --c-amber-tint: rgba(246, 181, 83, 0.12);
 
@@ -131,6 +136,10 @@ html.dark {
   --c-merchant-warning-tint: rgba(240, 168, 62, 0.12);
   --c-merchant-muted-tint: rgba(161, 161, 170, 0.08);
   --c-merchant-blue-tint: rgba(139, 139, 255, 0.12);
+  --c-merchant-brand: #5b9bff;
+  --c-merchant-brand-tint: rgba(91, 155, 255, 0.14);
+  --c-merchant-up: #4cc47c;
+  --c-merchant-up-tint: rgba(76, 196, 124, 0.14);
   --c-pink-tint: rgba(245, 92, 122, 0.18);
   --c-amber-tint: rgba(246, 181, 83, 0.18);
 
@@ -157,7 +166,7 @@ body {
 }
 
 body {
-  font-family: var(--font-poppins), "Poppins", sans-serif;
+  font-family: var(--font-jakarta), "Plus Jakarta Sans", sans-serif;
   background: var(--c-bg);
   color: var(--c-text);
   -webkit-font-smoothing: antialiased;
@@ -253,18 +262,8 @@ a {
   background: var(--c-field) !important;
 }
 
-/* Sidebar hover — matches catalogues-web */
-.mw-side-link:hover {
-  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
-  background-color: rgba(189, 37, 135, 0.08) !important;
-  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
-  box-shadow: inset 3px 0 0 0 rgba(189, 37, 135, 0.4) !important;
-}
-.mw-side-link:hover span {
-  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
-  color: #ffffff !important;
-}
+/* Sidebar rows: the design's translucent-white hover and active fill on the dark rail */
+.mw-side-link:hover,
 .mw-side-btn:hover {
-  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
-  background-color: rgba(189, 37, 135, 0.08) !important;
+  background-color: rgba(248, 248, 248, 0.1);
 }

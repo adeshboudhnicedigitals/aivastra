@@ -5,7 +5,7 @@ name: aivastra-prod
 #   app.aivastra.com/         -> localhost:3000  (Next.js web)
 #   app.aivastra.com/v1/      -> localhost:4000  (Fastify API)
 #   app.aivastra.com/minio/   -> localhost:9000  (MinIO pass-through for presigned URLs)
-#   merchant.aivastra.com/    -> localhost:3010  (Next.js merchant-web)
+#   merchant.aivastra.com/    -> localhost:3200  (Next.js merchant-web)
 #   admin.aivastra.com/       -> localhost:3001  (Admin SPA)
 #   admin.aivastra.com/admin/ -> localhost:4000  (Fastify API)
 #   admin.aivastra.com/v1/    -> localhost:4000  (Fastify API)
@@ -201,7 +201,9 @@ services:
     environment:
       API_URL: http://api:4000
     ports:
-      - "127.0.0.1:3010:3010"
+      # Host 3200, not 3010: 3010 (and 3011) were already held by something on the prod VPS, so the
+      # first deploy failed with "port is already allocated". Container port is unchanged.
+      - "127.0.0.1:3200:3010"
     networks:
       - aivastra-net
 

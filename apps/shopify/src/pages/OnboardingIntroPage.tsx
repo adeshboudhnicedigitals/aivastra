@@ -1,9 +1,14 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import garmentImage from '../assets/welcome-garment.jpg';
 import personImage from '../assets/welcome-person.jpg';
 import resultImage from '../assets/welcome-result.jpg';
+import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingShell } from '../components/OnboardingShell';
+import { apiFetch } from '../lib/api';
+import { type ClassifiedError, classifyError } from '../lib/errors';
 import { STEP_LABELS, STEP_PAGES } from '../lib/onboarding';
+import type { ShopifyMe } from '../types';
 
 const PHOTOS = [
   { src: garmentImage, alt: 'A product photo from the store', width: 314 },
@@ -47,11 +52,35 @@ const INTRO_CSS = `
 .av-mini b { width: 36px; height: 36px; border-radius: 50%; background: #e9e4fb; color: #4b1fd6; display: grid; place-items: center; font-size: 16px; font-weight: 700; }
 @media (max-width: 760px) { .av-arr { display: none; } .av-trio { gap: 12px; } .av-mini li { padding: 0 12px; } .av-mini li + li { border-left: 0; } }`;
 
-export default function OnboardingIntroPage() {
+export default function OnboardingIntroPage({ me }: { me: ShopifyMe }) {
   const navigate = useNavigate();
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<ClassifiedError | null>(null);
+
+  // Product import runs in the background from here; no step waits on it. Try-on
+  // starts on for every product, so a mode is only set when the store has none
+  // (a mode chosen earlier is never overridden).
+  async function startSetup() {
+    if (starting) return;
+    setStarting(true);
+    setError(null);
+    try {
+      if (!me.store.settings.activation?.mode) {
+        await apiFetch('/v1/shopify/activation/mode', {
+          method: 'PATCH',
+          body: JSON.stringify({ mode: 'global' }),
+        });
+      }
+      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
+      navigate('/onboarding/contact');
+    } catch (err) {
+      setError(classifyError(err));
+      setStarting(false);
+    }
+  }
 
   return (
-    <OnboardingShell page="intro" hideFooter onContinue={() => navigate('/onboarding/products')}>
+    <OnboardingShell page="intro" hideFooter onContinue={startSetup}>
       <style>{INTRO_CSS}</style>
       <div className="av-intro">
         <span className="eyebrow">WELCOME TO AI VASTRA</span>
@@ -81,6 +110,11 @@ export default function OnboardingIntroPage() {
             </div>
           ))}
         </div>
+        {error && (
+          <div style={{ width: '100%', maxWidth: 640, marginTop: 'var(--av-gap)' }}>
+            <ErrorBanner error={error} onRetry={startSetup} onDismiss={() => setError(null)} />
+          </div>
+        )}
         <div className="av-rule">
           <span />
           <p>Complete your setup in {STEP_PAGES.length} simple steps</p>
@@ -103,7 +137,9 @@ export default function OnboardingIntroPage() {
             padding: '0 40px',
             fontSize: 18,
           }}
-          onClick={() => navigate('/onboarding/products')}
+          onClick={startSetup}
+          disabled={starting}
+          aria-busy={starting || undefined}
         >
           Start Setup
           {ARROW}

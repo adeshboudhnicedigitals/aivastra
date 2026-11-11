@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidCustomRange, rangeFor } from './date-range';
+import { isValidCustomRange, previousRange, rangeFor } from './date-range';
 
 const TZ = 'Asia/Kolkata';
 
@@ -43,5 +43,21 @@ describe('isValidCustomRange', () => {
     expect(isValidCustomRange('', '2026-11-07')).not.toBeNull();
     expect(isValidCustomRange('2026-11-07', 'nope')).not.toBeNull();
     expect(isValidCustomRange('2026-02-30', '2026-03-01')).not.toBeNull();
+  });
+});
+
+describe('previousRange', () => {
+  it('is the equally long run of days just before the range', () => {
+    expect(previousRange({ from: '2026-11-01', to: '2026-11-07' })).toEqual({
+      from: '2026-10-25',
+      to: '2026-10-31',
+    });
+  });
+
+  it('handles a single day', () => {
+    expect(previousRange({ from: '2026-11-07', to: '2026-11-07' })).toEqual({
+      from: '2026-11-06',
+      to: '2026-11-06',
+    });
   });
 });

@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
 import { Glyph, Note, PageHead } from '../components/PageHead';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
-import { canShowPostProductsPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
 import { isValidPhone, PHONE_ERROR } from '../lib/phone';
 import type { ShopifyMe } from '../types';
 
@@ -37,11 +36,6 @@ export default function OnboardingContactPage({
   // continue, so a prefilled page doesn't open covered in red.
   const [touched, setTouched] = useState({ name: false, email: false, phone: false });
   const [error, setError] = useState<ClassifiedError | null>(null);
-
-  const currentStep = getOnboardingStep(me);
-  if (!canShowPostProductsPage(currentStep)) {
-    return <Navigate to={onboardingPath(currentStep)} replace />;
-  }
 
   const nameError = name.trim() === '' ? 'Enter your name' : undefined;
   const emailError = !EMAIL_RE.test(email.trim()) ? 'Enter a valid email address' : undefined;

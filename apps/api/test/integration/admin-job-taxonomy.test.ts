@@ -29,7 +29,7 @@ describe('GET /admin/workers/job-types', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().sort()).toEqual(
-      ['catalogue', 'inhouse', 'merchant', 'saree', 'shopify', 'tryon'].sort(),
+      ['catalogue', 'inhouse', 'merchant', 'quick_tryon', 'saree', 'shopify', 'tryon'].sort(),
     );
   });
 });

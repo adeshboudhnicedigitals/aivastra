@@ -35,6 +35,12 @@ beforeAll(async () => {
     'read_products',
   );
   storeId = store.id;
+  // Newly provisioned stores start in global mode; these tests exercise the
+  // selective-mode rules (explicit per-product enablement), so start from there.
+  await app.db
+    .update(schema.shopifyStores)
+    .set({ settings: { activation: { mode: 'selective' } } })
+    .where(eq(schema.shopifyStores.id, storeId));
   token = signSessionToken('m.myshopify.com', API_SECRET, API_KEY);
 
   await app.db.insert(schema.shopifyProductGarments).values([
@@ -243,6 +249,10 @@ describe('GET /v1/shopify/me stats — enabledProductCount is activation-aware',
       'tok',
       'read_products',
     );
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ settings: { activation: { mode: 'selective' } } })
+      .where(eq(schema.shopifyStores.id, modeStore.id));
     const modeToken = signSessionToken('global-mode.myshopify.com', API_SECRET, API_KEY);
 
     await app.db.insert(schema.shopifyProductGarments).values([

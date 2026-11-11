@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { apiFetch, navigateTopLevel } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { PACK_DISPLAY } from '../lib/packs';
+import { Glyph } from './PageHead';
 
 // Shared between DashboardPage and PricingPage, same pattern as
 // DashboardPage's own LowCreditsBanner: one definition, imported wherever the
@@ -40,46 +41,33 @@ export function PackGrid({
   }
 
   return (
-    <div className={`av-grid ${leadingCard ? 'av-g4' : 'av-g3'}`}>
+    <div className={`av2-packs${leadingCard ? ' lead' : ''}`}>
       {leadingCard}
       {PACK_DISPLAY.map((pack) => (
-        <div
-          key={pack.id}
-          className="av-c"
-          style={{
-            padding: 28,
-            display: 'flex',
-            flexDirection: 'column',
-            border: pack.bestValue ? '2px solid #5a2cf0' : undefined,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-            }}
-          >
-            <h2 className="av-h2">{pack.label}</h2>
-            {pack.bestValue && <span className="av-chip ok">Best value</span>}
+        <div key={pack.id} className={`av2-pack${pack.bestValue ? ' hot' : ''}`}>
+          <div className="av2-pack-head">
+            <h3>{pack.label}</h3>
+            {pack.bestValue && (
+              <span className="av-chip brand">
+                <Glyph size={14}>
+                  <path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5L3 8z" />
+                </Glyph>
+                Most Popular
+              </span>
+            )}
           </div>
-          <div className="av-big lg">${pack.priceUsd}</div>
-          <div className="av-sub" style={{ color: '#12101f', fontWeight: 500 }}>
-            {pack.tryOns.toLocaleString()} try-ons
-          </div>
-          <div className="av-sub" style={{ marginTop: 4, marginBottom: 20 }}>
-            {pack.credits.toLocaleString()} credits · never expire
-          </div>
+          <div className="av2-pack-n">{pack.credits.toLocaleString()} credits</div>
+          <div className="av2-pack-t">≈ {pack.tryOns.toLocaleString()} try-ons</div>
+          <div className="av2-pack-p">${pack.priceUsd}</div>
+          <div className="av2-pack-note">Never expire</div>
           <button
             type="button"
-            className="av-btn-primary"
-            style={{ marginTop: 'auto', width: '100%', height: 48, fontSize: 16 }}
+            className={pack.bestValue ? 'av-btn-primary' : 'av-btn-ghost'}
             disabled={buying !== null}
             aria-busy={buying === pack.id || undefined}
             onClick={() => buyPack(pack.id)}
           >
-            Buy credits
+            Buy Now
           </button>
         </div>
       ))}
