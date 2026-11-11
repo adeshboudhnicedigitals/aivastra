@@ -4,8 +4,6 @@ name: CI Bench
 # runner (scripts/bench/), to compare job time and RAM at 2 vs 4 vs 8 CPUs.
 # Has no deploy job. Delete this file, with scripts/bench/, once the report is done.
 on:
-  push:
-    branches: [ci/self-hosted-bench]
   workflow_dispatch:
     inputs:
       force_all:

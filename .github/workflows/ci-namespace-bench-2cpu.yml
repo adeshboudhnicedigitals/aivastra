@@ -1,18 +1,14 @@
-name: CI Namespace Bench
+name: CI Namespace Bench (2cpu)
 
 # Throwaway benchmark: the ci-bench.yml job graph (ci.yml without the deploy job)
-# on Namespace runner profiles, to compare wall-clock with GitHub-hosted runners
-# and the self-hosted test. Dispatch by hand and choose the runner label:
-#   namespace-profile-aivastra  (2 vCPU / 4 GB, ubuntu-24.04)
-#   namespace-profile-default   (4 vCPU / 16 GB, ubuntu-22.04)
-# Delete this file once the comparison is recorded.
+# on the Namespace runner profile namespace-profile-aivastra (2 vCPU / 4 GB, ubuntu-24.04), to compare
+# wall-clock with GitHub-hosted runners and the self-hosted test.
+# Runs on every push to ci/self-hosted-bench. Delete once the comparison is recorded.
 on:
+  push:
+    branches: [ci/self-hosted-bench]
   workflow_dispatch:
     inputs:
-      runner:
-        description: Runner label for every job
-        type: string
-        default: namespace-profile-aivastra
       force_all:
         description: Build and test every service regardless of the diff
         type: boolean
@@ -23,7 +19,7 @@ on:
         default: ''
 
 concurrency:
-  group: ci-namespace-bench
+  group: ci-namespace-bench-2cpu
   cancel-in-progress: false
 
 env:
@@ -33,7 +29,7 @@ env:
 jobs:
   detect:
     name: Detect affected targets
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     outputs:
       services: ${{ steps.detect.outputs.services }}
@@ -81,7 +77,7 @@ jobs:
 
   lint:
     name: Lint & format
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     needs: [detect]
     # Skip on push: branch protection on main/dev blocks direct pushes and
@@ -113,7 +109,7 @@ jobs:
 
   typecheck:
     name: Typecheck
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     needs: [detect]
     # See lint's comment — skip on push, already validated at PR time.
@@ -150,7 +146,7 @@ jobs:
 
   test:
     name: Unit tests (${{ matrix.package }})
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     needs: [detect]
     # See lint's comment — skip on push, already validated at PR time.
@@ -216,7 +212,7 @@ jobs:
 
   test-integration:
     name: Integration tests (${{ matrix.package }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     # 15, not 10: with two shards per suite each shard carries more tests, and an
     # unsharded api run was already seen at ~10 min.
     timeout-minutes: 90
@@ -309,7 +305,7 @@ jobs:
 
   ci-scripts:
     name: Detector tests
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     needs: [detect]
     # See lint's comment — skip on push, already validated at PR time.
@@ -342,7 +338,7 @@ jobs:
 
   gitleaks:
     name: gitleaks
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -388,7 +384,7 @@ jobs:
 
   branch-source-gate:
     name: branch-source-gate
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     # Only meaningful for PRs targeting main; skipped otherwise so ci-gate's
     # success/skipped check below still passes for dev-bound and non-PR runs.
@@ -408,7 +404,7 @@ jobs:
 
   ci-gate:
     name: ci-gate
-    runs-on: ${{ inputs.runner }}
+    runs-on: namespace-profile-aivastra
     timeout-minutes: 90
     if: always()
     needs: [detect, lint, typecheck, test, test-integration, ci-scripts, gitleaks, branch-source-gate]
