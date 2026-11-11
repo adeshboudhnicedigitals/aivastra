@@ -12,5 +12,6 @@ rm -rf /var/lib/docker /var/lib/containerd
 userdel -r ghrunner 2>/dev/null
 echo "kept /var/lib/bench (samples.csv) until you copy it off; rm -rf it afterwards"
 systemctl daemon-reload
+systemctl unmask comfyui.service comfyui-7070.service 2>/dev/null
 systemctl start comfyui-7070.service comfyui.service
 systemctl is-active comfyui.service comfyui-7070.service
