@@ -369,9 +369,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
               <button
                 className="stat"
                 style={{ borderTop: '3px solid #e5566b' }}
-                onClick={() =>
-                  onNav('jobs', { page: 'jobs', date: new Date().toISOString().slice(0, 10) })
-                }
+                onClick={() => onNav('jobs', { page: 'jobs' })}
               >
                 <div className="lbl">
                   <Icon.Activity /> Jobs processed
