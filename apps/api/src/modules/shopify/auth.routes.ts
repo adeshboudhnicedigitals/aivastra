@@ -99,6 +99,9 @@ export async function upsertShopifyStore(
         shopAddress: shop.address || null,
         allowedOrigins: origins,
         partnerDevelopment: shop.partnerDevelopment,
+        // Try-on is on for every product from install; there is no per-product
+        // setup step. Existing stores keep whatever mode they already chose.
+        settings: { activation: { mode: 'global' } },
       })
       .returning();
     return store;

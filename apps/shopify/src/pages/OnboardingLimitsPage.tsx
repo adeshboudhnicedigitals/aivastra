@@ -1,13 +1,12 @@
 import { Select } from '@shopify/polaris';
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { OnboardingLayout } from '../components/OnboardingLayout';
 import { Glyph, PageHead } from '../components/PageHead';
 import { apiFetch } from '../lib/api';
 import { type ClassifiedError, classifyError } from '../lib/errors';
 import { loginRequiredPatch, numericOptions, OFF, resolveNumericLimit } from '../lib/limits';
-import { canShowPostProductsPage, getOnboardingStep, onboardingPath } from '../lib/onboarding';
 import type { ShopifyMe, ShopifyStoreLimits } from '../types';
 
 // Onboarding's own subset of Settings → Limits' full PER_SHOPPER_CAP_OPTIONS —
@@ -42,11 +41,6 @@ export default function OnboardingLimitsPage({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ClassifiedError | null>(null);
-
-  const currentStep = getOnboardingStep(me);
-  if (!canShowPostProductsPage(currentStep)) {
-    return <Navigate to={onboardingPath(currentStep)} replace />;
-  }
 
   // Only the three settings this page shows are sent. The API merges limits, so
   // the store daily limit (edited only in Settings) is left alone.

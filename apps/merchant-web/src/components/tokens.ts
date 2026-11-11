@@ -57,6 +57,10 @@ export const M = {
   warningTint: 'var(--c-merchant-warning-tint)',
   mutedTint: 'var(--c-merchant-muted-tint)',
   blueTint: 'var(--c-merchant-blue-tint)',
+  brand: 'var(--c-merchant-brand)',
+  brandTint: 'var(--c-merchant-brand-tint)',
+  up: 'var(--c-merchant-up)',
+  upTint: 'var(--c-merchant-up-tint)',
 } as const;
 
 export const grad = 'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)';
