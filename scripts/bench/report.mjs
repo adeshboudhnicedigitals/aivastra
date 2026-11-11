@@ -46,7 +46,29 @@ for (const j of jobs) {
   });
 }
 console.table(out);
-const total = out.reduce((a, o) => a + o.wallSec, 0);
+
+// Run level: with jobs overlapping, a per-job peak is the whole slice, so the
+// run's own wall clock, peak RAM and mean CPU are the numbers to compare.
+const started = Math.min(
+  ...jobs.filter((j) => j.started_at).map((j) => Date.parse(j.started_at) / 1000),
+);
+const ended = Math.max(
+  ...jobs.filter((j) => j.completed_at).map((j) => Date.parse(j.completed_at) / 1000),
+);
+const win = rows.filter((r) => r[0] >= started && r[0] <= ended);
+const events = jobs
+  .filter((j) => j.started_at && j.completed_at)
+  .flatMap((j) => [
+    [Date.parse(j.started_at), 1],
+    [Date.parse(j.completed_at), -1],
+  ])
+  .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+let live = 0;
+let maxLive = 0;
+for (const [, d] of events) maxLive = Math.max(maxLive, (live += d));
+const sumJobs = out.reduce((a, o) => a + o.wallSec, 0);
 console.log(
-  `tier=${out[0]?.cpus} CPUs  sum of job wall time=${total}s  max slice RAM=${Math.max(...out.map((o) => o.peakSliceGiB))} GiB`,
+  `RUN  cpus=${win[0]?.[1]}  wall=${Math.round(ended - started)}s  sum-of-jobs=${sumJobs}s  max-concurrent-jobs=${maxLive}  ` +
+    `peak-slice-RAM=${(Math.max(...win.map((r) => r[2])) / GiB).toFixed(2)}GiB  ` +
+    `mean-CPUs=${((win[win.length - 1][3] - win[0][3]) / 1e6 / (ended - started)).toFixed(2)}`,
 );

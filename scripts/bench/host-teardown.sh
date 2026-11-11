@@ -5,6 +5,7 @@ set -uo pipefail
 systemctl disable --now bench-runner bench-sampler 2>/dev/null
 [ -n "${RUNNER_TOKEN:-}" ] && sudo -u ghrunner bash -c "cd /opt/bench-runner && ./config.sh remove --token $RUNNER_TOKEN"
 rm -f /etc/systemd/system/bench-runner.service /etc/systemd/system/bench-sampler.service /etc/systemd/system/bench.slice
+bash "$(dirname "$0")/parallel-down.sh" 2>/dev/null
 rm -f /usr/local/bin/bench-tier /usr/local/bin/bench-sampler
 rm -rf /opt/bench-runner /etc/docker/daemon.json
 apt-get purge -y docker.io docker-compose-v2 containerd runc 2>/dev/null

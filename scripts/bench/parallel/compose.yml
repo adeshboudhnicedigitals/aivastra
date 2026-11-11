@@ -1,0 +1,31 @@
+# Throwaway: one runner + private docker daemon sharing a network namespace, so each
+# runner has its own 127.0.0.1:5432/6379/9000 (the tests hard-code Redis and MinIO ports).
+# Use via up.sh, which sets the project name per runner.
+services:
+  dind:
+    image: docker:27-dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - docker:/var/lib/docker
+      # Same path in both containers: compose bind mounts (./postgres/init) are
+      # resolved by the daemon, so it must see the checkout where the runner put it.
+      - work:/home/runner/_work
+  runner:
+    image: bench-runner:local
+    restart: unless-stopped
+    network_mode: "service:dind"
+    depends_on: [dind]
+    environment:
+      DOCKER_HOST: tcp://127.0.0.1:2375
+      REPO_URL: ${REPO_URL}
+      RUNNER_TOKEN: ${RUNNER_TOKEN}
+      RUNNER_NAME: ${RUNNER_NAME}
+      LABELS: bench
+    volumes:
+      - work:/home/runner/_work
+volumes:
+  docker:
+  work:
