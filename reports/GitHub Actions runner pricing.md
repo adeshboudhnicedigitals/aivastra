@@ -1,0 +1,92 @@
+# Third-party runners undercut GitHub, but only some
+
+As of 2026-11-11, the cheapest published per-minute Linux rates belong to Ubicloud ($0.00125 per 2 vCPU minute in its docs), Namespace ($0.002 prepaid) and Blacksmith/WarpBuild ($0.004), against a GitHub-hosted baseline of **$0.006 per minute for 2 vCPU Linux x64**, $0.012 for 4, $0.022 for 8 and $0.042 for 16 ([GitHub Docs](https://docs.github.com/en/billing/reference/actions-runner-pricing)). Depot does not undercut GitHub on list price: it matches GitHub at 2 and 4 vCPU and is slightly dearer at 8 and 16 ([Depot](https://depot.dev/docs/github-actions/runner-types)). RunsOn (an annual licence plus your own AWS spot bill) and Actuated (a flat $125-150 per server per month) have no per-minute vendor price at all, so they are compared on cost-per-minute only by estimate. BuildJet is dead: jobs stopped on 2026-03-31, and its numbers are historical. Buildkite is a separate CI platform that bills per active user plus hosted-agent minutes, not a drop-in runner. For runmyjob (RunJob by Puzl Cloud), no prices could be found. Several headline questions stay unresolved: whether GitHub will ever charge for self-hosted runners, which Ubicloud standard price is live, and what Depot really charges for Windows. Section 4 flags each. All figures come from vendor pages read through a summarising fetch tool, so confirm exact numbers before a purchase decision.
+
+## The GitHub baseline moved in January, and larger runners are not cheaper per core
+
+GitHub cut hosted-runner rates by up to 39% effective 2026-01-01 and left included quotas unchanged ([GitHub Changelog](https://github.blog/changelog/2025-12-16-coming-soon-simpler-pricing-and-a-better-experience-for-github-actions/)). Current Linux x64 rates are $0.006/$0.012/$0.022/$0.042 per minute at 2/4/8/16 vCPU; Linux ARM is $0.005/$0.008/$0.014/$0.026; Windows x64 is $0.010 at 2 vCPU then $0.022/$0.042/$0.082 at 4/8/16; standard macOS is $0.062, with 12-core x64 at $0.077 and 5-core M2 Pro at $0.102 ([GitHub Docs](https://docs.github.com/en/billing/reference/actions-runner-pricing)). Per core, Linux x64 costs about $0.003 per vCPU-minute at 2 vCPU and about $0.0026 at 8 and 16 (derived), so scaling up saves little. Each job rounds up to the whole minute.
+
+Included compute is now expressed in dollars: **Free $12, Pro/Team $18, Enterprise Cloud $300 per month**, with the $300 equal to 50,000 minutes on 2-core Linux. That implies roughly 2,000 and 3,000 minutes for the $12 and $18 tiers (my calculation). Artifacts and Packages beyond the allowance cost $0.25/GB-month; Actions cache above the 10 GB per-repo default costs $0.07/GB-month, and only if the limit is raised. Larger runners always require a payment method ([GitHub Docs: billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)).
+
+The self-hosted question is the baseline's biggest uncertainty. GitHub announced a $0.002/min "cloud platform charge" on self-hosted runners from 2026-03-01, then postponed it "to re-evaluate our approach" with no new date ([GitHub Changelog](https://github.blog/changelog/2025-12-16-coming-soon-simpler-pricing-and-a-better-experience-for-github-actions/)). One mid-2026 article says it never took effect ([OpenMetal](https://openmetal.io/resources/blog/the-real-cost-math-behind-self-hosted-github-actions-runners/)), while others still describe it as planned ([Substack](https://theplatformengineering.substack.com/p/github-actions-2026-pricing-changes)). The research found no GitHub statement dated after the postponement. The working conclusion is that no fee applies today, but it could return. That matters for RunsOn and Actuated, which run on self-hosted runners, and potentially for any provider whose runners register that way.
+
+## Normalised per-minute rates: Ubicloud and Namespace lowest, Depot at parity
+
+Rates below are list price per minute in USD for Linux (x64 unless noted) and are not speed-adjusted. Memory differs by vendor, which is the main reason a raw comparison flatters Namespace: its cheapest shapes carry 2 GB per vCPU, versus 4 GB at Depot and Ubicloud x64 and 3 GB per vCPU on Ubicloud ARM.
+
+| Provider | 2 vCPU | 4 vCPU | 8 vCPU | 16 vCPU | Notes |
+|---|---|---|---|---|---|
+| GitHub-hosted x64 | 0.006 | 0.012 | 0.022 | 0.042 | baseline |
+| GitHub-hosted ARM | 0.005 | 0.008 | 0.014 | 0.026 | baseline |
+| Ubicloud standard x64 (docs) | 0.00125 | 0.0025 | 0.005 | 0.010 | conflict, see section 4; not offered to new customers |
+| Ubicloud premium x64 | 0.002 | 0.004 | 0.008 | 0.016 | default for new accounts |
+| Ubicloud ARM | 0.00125 | 0.0025 | 0.005 | 0.010 | |
+| Namespace x64 and ARM, prepaid | 0.002 | 0.004 | 0.008 | 0.016 | 2 GB/vCPU; overage is 1.5x |
+| Namespace x64 and ARM, overage | 0.003 | 0.006 | 0.012 | 0.024 | |
+| Blacksmith x64 | 0.004 | 0.008 | 0.016 | 0.032 | |
+| WarpBuild x64 | 0.004 | 0.008 | 0.016 | 0.032 | |
+| Blacksmith ARM | 0.0025 | 0.005 | 0.010 | 0.020 | only 2 and 4 vCPU confirmed on an official page |
+| WarpBuild ARM | 0.003 | 0.006 | 0.012 | 0.024 | |
+| Depot x64 and ARM | 0.006 | 0.012 | 0.024 | 0.048 | |
+| Buildkite hosted Linux | 0.008 | 0.016 | 0.032 | 0.064 | shape mapping and 16 vCPU derived; plus per-user fee |
+| BuildJet (closed) | 0.004 | 0.008 | 0.016 | 0.032 | historical |
+| RunsOn (AWS spot only, excl. licence) | about 0.0009 | about 0.0013 | about 0.002 (my interpolation) | about 0.0037 | us-east-1 spot, includes 30 GB root disk |
+| Actuated | n/a | n/a | n/a | n/a | flat per server |
+| runmyjob | not found | not found | not found | not found | |
+
+Sources: [Ubicloud docs](https://ubicloud.com/docs/about/pricing.md), [Namespace](https://namespace.so/pricing), [Blacksmith via usagepricing.com](https://www.usagepricing.com/blueprint/blacksmith) and [blacksmith.sh](https://www.blacksmith.sh/pricing), [WarpBuild](https://www.warpbuild.com/pricing), [Depot](https://depot.dev/docs/github-actions/runner-types), [Buildkite](https://buildkite.com/pricing), [BuildJet (stale page)](https://buildjet.com/for-github-actions/pricing), [RunsOn](https://runs-on.com/pricing/). Buildkite's Small/Medium/Large Linux rates of $0.008/$0.016/$0.032 per minute are stated; mapping them to 2/4/8 vCPU follows from the $0.004 per vCPU-minute rate and is not confirmed on the page.
+
+Relative to GitHub, Blacksmith and WarpBuild are 33% cheaper at 2 vCPU and 24% cheaper at 16 vCPU on x64 (derived), which squares with Blacksmith's own "33% cheaper per minute" claim, though its docs still say half price ([usagepricing.com](https://www.usagepricing.com/blueprint/blacksmith)). Depot's $0.024 and $0.048 at 8 and 16 vCPU sit about 9% and 14% above GitHub. Its case rests on speed and caching, not rate. Buildkite is 33% to 52% above GitHub per minute, so its value is orchestration, not price. The ARM story differs: GitHub's own ARM is already cheap, so Blacksmith ARM is only 50% below it at 2 vCPU and WarpBuild ARM 40% below.
+
+Windows and macOS are thinner markets. Ubicloud has no Windows or macOS, BuildJet never had either, and RunsOn and Actuated were not priced for them. The offerings that exist:
+
+| Provider | Windows 2 / 4 / 8 / 16 vCPU | macOS |
+|---|---|---|
+| GitHub | 0.010 / 0.022 / 0.042 / 0.082 | 0.062 standard; 0.077 (12-core); 0.102 (M2 Pro) |
+| Namespace (prepaid) | 0.004 / 0.008 / 0.016 / 0.032 | 0.06 (6 vCPU), 0.08 (8), 0.12 (12) |
+| Blacksmith (beta) | 0.008 / 0.016 / 0.032 / 0.064 | 0.08 (6 vCPU M4), 0.16 (12) |
+| WarpBuild | none (2 vCPU removed 2026-06-08) / 0.016 / 0.032 / 0.064 | 0.08 (6 vCPU), 0.16 (12) |
+| Depot | 0.008 / 0.016 / 0.032 / 0.064 (inconsistent, see section 4) | 0.08 (8 vCPU/24 GB) |
+| Buildkite | 0.016 / 0.032 / 0.064 (Small/Medium/Large, mapping derived) | 0.12 (M4 Medium), 0.24 (M4 Large) |
+
+Namespace's macOS is 4 to 6 vCPU for $0.04 to $0.06, a lower price than GitHub's $0.062 at smaller sizes only because of the prepaid discount; at overage rates it is $0.06 to $0.09. Blacksmith macOS prices come from a tracker for the 12 vCPU tier, with only $0.08 confirmed on the vendor page.
+
+## Plans, free tiers and licences differ in kind, not only in price
+
+**Subscription-led providers.** Depot's Developer plan is $20/month for 2,000 Actions minutes, 25 GB cache and one user; Startup is $200/month for 20,000 minutes, 250 GB and unlimited users, with SAML/SCIM an extra $500/month; Business is custom and holds GPU runners and static IPs ([Depot pricing](https://depot.dev/pricing)). Because the Startup tier works out to $0.01 per included 2-vCPU minute against a $0.006 overage rate (derived), the subscription is a platform fee, not a volume discount. Namespace's Developer plan costs $0 pay-as-you-go with a 30-day trial; Team is $100/month for 100,000 unit minutes; Business is $250/month for 250,000. A unit minute is one vCPU with 2 GB for one minute, so the effective prepaid price is $0.001 per unit and overage $0.0015 ([Namespace](https://namespace.so/pricing)). Plan caps limit instance size: 32 vCPU Linux on Developer, 64 on Team, 160 on Business.
+
+**Usage-led providers.** Blacksmith gives **3,000 free minutes per org per month** (2 vCPU x64 equivalent; ARM 2 vCPU costs 0.625 free minutes, Windows 2 vCPU costs 2, macOS 6 vCPU costs 20) with no card, then pay-as-you-go, plus custom Enterprise ([usagepricing.com](https://www.usagepricing.com/blueprint/blacksmith), [Orb](https://www.withorb.com/pricing-atlas/blacksmith)); a startup discount and an open-source programme also exist ([blacksmith.sh](https://www.blacksmith.sh/pricing)). WarpBuild lists no subscription tiers and no free-minute amount, only add-ons: SAML SSO $250/month, data residency $250/month, audit logs $400/month ([WarpBuild](https://www.warpbuild.com/pricing)). Ubicloud gives every account a **$2.50/month credit**, documented as 1,250 minutes ([Ubicloud docs](https://ubicloud.com/docs/about/pricing.md)); that figure only holds at the premium 2 vCPU rate and would be 2,000 minutes at standard ([cicdpipelinecost.com](https://cicdpipelinecost.com/ubicloud-pricing)).
+
+**Licence and bring-your-hardware models.** RunsOn is billed annually per legal entity in euros: free for non-commercial use, Starter EUR 300 (<50k jobs/month), Growth EUR 900 (<200k), Scale EUR 1,800 (<500k), unlimited EUR 3,600, with a 15-day trial and no hard enforcement of tier limits. AWS bills compute directly, and the control plane runs from about $7/month ([RunsOn](https://runs-on.com/pricing/)). Roughly 79% of its customers sit on Starter, which adds about EUR 25/month. Actuated charges **$150/month for the first server and $125 for each further one**, with unlimited minutes, CPUs, RAM and concurrency, on hosts you supply that must be bare metal or nested-virtualisation capable ([Actuated](https://actuated.com/pricing), [docs](https://docs.actuated.com/)); the server itself usually dominates total cost. WarpBuild also offers BYOC on AWS/GCP/Azure for $0.002/min on Linux and Windows (AWS and Azure) ([WarpBuild](https://www.warpbuild.com/pricing)).
+
+**Buildkite.** Free covers 5 users and 2,000 Linux vCPU-minutes; Pro is **$30 per active user per month** with 4,000 included minutes; Enterprise is custom with a 30-user minimum. Hosted agents bill at $0.004/vCPU-minute on Linux (x64 and ARM), $0.008 on Windows and $0.02 on Mac, metered per second with no minimum ([Buildkite](https://buildkite.com/pricing)). It orchestrates builds in its own pipeline system, so adopting it means leaving GitHub Actions, not swapping a label.
+
+## Hidden costs sit in cache, billing granularity and fallbacks
+
+**Rounding.** GitHub rounds each job up to a whole minute. Namespace has a one-minute minimum with a 15-second grace (30 s bills 1 min, 70 s bills 1 min, 150 s bills 3 min) ([Namespace](https://namespace.so/pricing)). Depot tracks per second with no per-run minimum but invoices whole minutes in aggregate ([Depot overview](https://depot.dev/docs/github-actions/overview)); the aggregate rule is unstated. Buildkite meters to the second. Blacksmith, WarpBuild and Ubicloud publish no rule beyond "per minute", so short jobs may round up. RunsOn inherits EC2 billing; the claim of per-second billing with a 60-second minimum is background knowledge and unverified here.
+
+**Cache and storage.** GitHub gives 10 GB cache per repo and charges $0.07/GB-month above it. Depot and Namespace both charge $0.20/GB-month for extra storage, Depot after 25 GB (Developer) or 250 GB (Startup). Namespace adds cache-volume pricing ($0.0048/GB-day storage and $0.002/GB-hour snapshots, billed in 100 GB blocks) and per-build Docker fees ($0.05 on Developer; $10 per 1,000 beyond the allowance on Team and Business). Blacksmith's Actions cache is free up to 25 GB per repo per week, but sticky disks and Docker layer cache cost $0.50/GB-month ([usagepricing.com](https://www.usagepricing.com/blueprint/blacksmith)). WarpBuild charges $0.20/GB-month plus $0.0001 per cache operation, a per-operation cost that scales with how many small restores a monorepo performs ([WarpBuild](https://www.warpbuild.com/pricing)). Ubicloud includes 30 GB (standard) or 100 GB (premium) cache ([Ubicloud](https://www.ubicloud.com/use-cases/github-actions)). Buildkite charges nothing for cache but $0.05/GB-month for artifacts beyond 250 GB on Pro. Cache is also a security concern: Namespace's cache is shared across all users of a runner profile, including branch runs ([Namespace docs](https://namespace.so/docs/solutions/github-actions)).
+
+**Egress and fixed add-ons.** No per-GB egress price was found for Depot, Namespace, Blacksmith or WarpBuild. RunsOn egress outside the region is billed by AWS, and only in-region traffic is covered by the $7 control plane. Blacksmith static IPs cost $100 per IP per month.
+
+**Fallback and mid-cycle billing.** Ubicloud enables premium by default for new accounts and falls back to standard when premium is full, billing the runner actually used ([cicdpipelinecost.com](https://cicdpipelinecost.com/ubicloud-pricing)). Blacksmith invoices the first time monthly usage crosses $100; WarpBuild can charge mid-cycle on a threshold. Blacksmith's "Free Upgrades" can run a job on the next tier up at the smaller price when capacity is spare. WarpBuild removed spot cloud runners on 2026-06-08.
+
+## Conflicts, gaps and unverified figures
+
+1. **BuildJet is shut down.** Its pricing page still loads with no shutdown notice and lists $0.004 per 2 vCPU minute, but BuildJet announced shutdown on 2026-02-06, halted signups and stopped jobs on 2026-03-31 ([WarpBuild](https://warpbuild.com/blog/buildjet-shutting-down)). Corroboration comes from secondary accounts (Tenki, RunsOn); the reasons offered are competitor claims, and RunsOn disputes them. `buildjet-*` labels now fail.
+
+2. **GitHub self-hosted fee status is unconfirmed.** Postponed in the official changelog, reported as never effective by one mid-2026 source, still described as planned by older sources, and WarpBuild's blog and press coverage assert the March 2026 start as if it happened ([WarpBuild blog](https://warpbuild.com/blog/github-actions-price-change)). No post-postponement GitHub statement was found. The risk is real for RunsOn, Actuated and BYOC models.
+
+3. **Ubicloud standard price conflicts.** The docs table lists $0.00125 per 2 vCPU minute; the marketing page and price-adjustment blog say $0.0010 (up from $0.0008 on 2026-05-01 for new deployments and 2026-06-01 for existing, in Germany, Finland and Virginia; AWS regions unchanged) ([blog](https://ubicloud.com/blog/ubicloud-price-adjustment-2026)). Premium also conflicts: docs $0.002, a third party $0.0016 ([cicdpipelinecost.com](https://cicdpipelinecost.com/ubicloud-pricing)). Standard x64 is no longer offered to new customers, so a new account most likely pays premium. Verify at checkout. This report uses the docs figures in the table and treats $0.0010 as unconfirmed.
+
+4. **Depot Windows is internally inconsistent.** Its page lists a 2x multiplier on Windows but a price of only 1.33x Linux ($0.008 vs $0.006); applying 2x to the base would give $0.012. The macOS multiplier is unpublished. Treat Windows and macOS rates as needing a manual check.
+
+5. **runmyjob has no usable prices.** It exists as RunJob/RunMyJob from Puzl Cloud (runjob.eu), is EU-based, works only for GitHub organisations, and claims per-second billing on real CPU and RAM usage ([RunJob docs](https://runjob.eu/docs/)). The "5x" and "10x cheaper" claims are marketing and unverified, and neither prices, free-tier size, concurrency nor company stability could be established. The docs' CPU and memory pricing pages were not fetched.
+
+6. **Smaller gaps.** Blacksmith ARM at 8/16/32 vCPU and Windows/macOS at larger sizes come from a third-party tracker, because an official docs page returned 404. WarpBuild's free-usage amount is not stated. RunsOn has no 8 vCPU or Graviton figure and no USD licence price extracted. Namespace's ARM parity with x64 is inferred from a combined table header. Actuated's displayed $0.005/min across 2 to 32 cores appears illustrative, not billed. Concurrency limits for GitHub, Ubicloud, RunsOn and Namespace were not retrieved. Depot and Blacksmith savings claims are speed-based and unaudited. Nothing here was independently confirmed beyond vendor pages and the secondary sources cited.
+
+## Conclusion
+
+The real decision is not which list price is lowest but which cost structure fits the workload. For short, bursty jobs on Linux, Ubicloud, Namespace (prepaid) and Blacksmith/WarpBuild undercut GitHub by 33% to 80% per minute, while Depot's parity pricing means it is bought for cache speed and per-second tracking, not savings. RunsOn and Actuated flip the model: below some utilisation threshold they cost more than a metered vendor once a licence or server fee is included, above it their marginal minute is close to free, but they are exposed to GitHub's undecided self-hosted fee.
+
+The research also shows how fast this market moves and how unreliable stale pages are: BuildJet's page still sells a dead product, Ubicloud's docs and marketing disagree, and Blacksmith's own savings claims differ between pages. Before committing, check the live checkout price for Ubicloud, the Depot Windows rate and a quote from runmyjob, and size shapes against RAM, since a cheaper 2 GB/vCPU shape is not equivalent to a 4 GB one. A 30-day pilot with real jobs would answer both speed and billing-rounding questions that no pricing page answers.
