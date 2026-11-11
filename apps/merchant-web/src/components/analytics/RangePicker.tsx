@@ -1,5 +1,5 @@
 'use client';
-import { C } from '@/components/tokens';
+import { C, M } from '@/components/tokens';
 import { isValidCustomRange } from '@/lib/date-range';
 
 export type RangeChoice = 'today' | '7d' | '30d' | 'custom';
@@ -51,9 +51,9 @@ export function RangePicker({
                 height: 36,
                 padding: '0 14px',
                 borderRadius: 8,
-                border: `1px solid ${active ? C.pink : C.border2}`,
-                background: active ? C.pink : C.white,
-                color: active ? C.white : C.text,
+                border: `1px solid ${active ? M.brand : C.border2}`,
+                background: active ? M.brand : C.white,
+                color: active ? C.onDark : C.text,
                 fontFamily: 'inherit',
                 fontSize: 13,
                 fontWeight: 600,
