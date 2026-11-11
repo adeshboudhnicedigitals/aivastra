@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
-import { Poppins } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import { headers } from 'next/headers';
 import './globals.css';
 import { C } from '@/components/tokens';
 import { ToastProvider } from '@/components/ui/toast';
 
-const poppins = Poppins({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-poppins',
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-jakarta',
   display: 'swap',
 });
 
@@ -35,7 +35,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         />
       </head>
       <body
-        className={poppins.variable}
+        className={jakarta.variable}
         style={{ background: C.bg, color: C.text }}
         suppressHydrationWarning
       >

@@ -46,3 +46,12 @@ export function isValidCustomRange(from: string, to: string): string | null {
   if ((t - f) / DAY_MS + 1 > MAX_DAYS) return `Choose a range of at most ${MAX_DAYS} days.`;
   return null;
 }
+
+/** The equally long run of days ending the day before `range` starts (for period-over-period deltas). */
+export function previousRange(range: { from: string; to: string }): { from: string; to: string } {
+  const f = parseDate(range.from);
+  const t = parseDate(range.to);
+  if (f === null || t === null) return range;
+  const days = (t - f) / DAY_MS + 1;
+  return { from: iso(f - days * DAY_MS), to: iso(f - DAY_MS) };
+}
