@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { buildCsp } from '@/lib/csp';
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
-const PUBLIC_PATHS = ['/login', '/api/auth'];
+const PUBLIC_PATHS = ['/login', '/set-password', '/api/auth'];
 
 export function middleware(request: NextRequest) {
   // Fresh per-request nonce (CSP). Passed to the app as an `x-nonce` request
@@ -24,6 +24,15 @@ export function middleware(request: NextRequest) {
     BASE_PATH && pathname.startsWith(BASE_PATH)
       ? pathname.slice(BASE_PATH.length) || '/'
       : pathname;
+
+  // The team console has its own session cookie and never accepts the retailer one (spec §8).
+  if (path === '/hq' || path.startsWith('/hq/')) {
+    const open = path === '/hq/login' || path.startsWith('/hq/api/auth');
+    if (open || request.cookies.get('hq_refresh')?.value) {
+      return withCsp(NextResponse.next({ request: { headers: requestHeaders } }));
+    }
+    return withCsp(NextResponse.redirect(new URL(`${BASE_PATH}/hq/login`, request.url)));
+  }
 
   if (PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`))) {
     return withCsp(NextResponse.next({ request: { headers: requestHeaders } }));

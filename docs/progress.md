@@ -1,3 +1,25 @@
+# 2026-11-12 — Account console phase 1: hardening, accounts, invite, /hq UI (local, not pushed)
+
+- **Done:**
+  - API: admin-audience tokens are refused on every user/portal route (`ADMIN_AUDIENCE`); minting credits needs the new
+    `credits.grant` permission (migration **0269**, seeded from `credits.write` holders + SUPER_ADMIN); `accounts.read`
+    (migration **0270**, SUPER_ADMIN + ADMIN) gates `GET /admin/accounts` (health list). Owner invite: creating a
+    merchant emails a 72h single-use set-password link (Redis `email:invite:{token}`, `email:invite:user:{id}`);
+    `GET /admin/merchants/:id/invite` and `POST .../invite/resend`; `POST /v1/auth/accept-invite`.
+  - Merchant Web: `/set-password` (+ `/api/auth/accept-invite` BFF); `/hq/login` as an explicit separate mode, own BFF
+    under `/hq/api/auth/*`, own cookie `hq_refresh` (path `/hq`, 24h) and own in-memory token (`lib/hq-api.ts`);
+    middleware gates `/hq/*` on that cookie only; `/hq/accounts` list and `/hq/accounts/[id]` (owner, invite status +
+    resend, credits + grant, branches, tablets).
+  - Verified: API integration tests for the above; merchant-web typecheck, 123 unit tests, `next build`.
+- **Failed / Not Done:**
+  - No page opened in a browser; the BFF login/refresh round trip against a running API is untested. Resend's real
+    delivery of the invite email is untested.
+  - Not enforced: a console account must not also be a merchant owner/staff (check production overlap read-only first).
+  - TOTP 2FA for console accounts (gate before production), per-account analytics, Shopify linking, retiring admin-web pages.
+- **Open Questions / outside the repo:**
+  - Which undecided admin-web pages move to the console; whether admin-web's credit-grant button stays during overlap.
+  - Production needs `MERCHANT_WEB_URL` set for the invite link and migrations 0269/0270 shipped via CI.
+
 # 2026-11-12 — CRM phase 4: customer list, profile, export, segments, deletion (local, not pushed)
 
 - **Done:**
