@@ -26,10 +26,12 @@ shopper can add to the cart (Q3); staff confirm billing.
 *(Done 2026-11-12: migration `0266_sizes_variants_stock` (+ seeded `tops-alpha`, `bottoms-waist`, `kids-age`, `free-size`), `modules/inventory/routes.ts`, `inventory` 8 tests; merchant-catalog / garment-type suites still pass.)*
 
 ## Slice 3b — cart (migration 0267)
-- [ ] `carts` (session unique, `cart_code` unguessable, status open|billed|abandoned), `cart_lines` (variant, qty, added_by `shopper|staff`, `billed_at`, `billed_source`, `billed_price_paise`, `billed_by_staff_id`, `session_item_id`, `removed_at`).
-- [ ] Device: get cart, add line (Idempotency-Key; out-of-stock at this branch refused), remove line; events `cart_added`, `cart_removed`.
-- [ ] Billing: device (assisted, staff header) and Merchant Web `GET/POST /v1/merchant/carts/:code[/bill]` (staff of the cart's branch, or admin) → per line `billed` + `sold` session item + `sale_recorded` (P2). Session end marks unbilled carts abandoned.
-- [ ] Tests incl. parity: billed lines show up in `itemTotals.sold`.
+- [x] `carts` (session unique, `cart_code` unguessable, status open|billed|abandoned), `cart_lines` (variant, qty, added_by `shopper|staff`, `billed_at`, `billed_source`, `billed_price_paise`, `billed_by_staff_id`, `session_item_id`, `removed_at`).
+- [x] Device: get cart, add line (Idempotency-Key; out-of-stock at this branch refused), remove line; events `cart_added`, `cart_removed`.
+- [x] Billing: device (assisted, staff header) and Merchant Web `GET/POST /v1/merchant/carts/:code[/bill]` (staff of the cart's branch, or admin) → per line `billed` + `sold` session item + `sale_recorded` (P2). ~~Session end marks unbilled carts abandoned.~~ *Revised: a kiosk shopper reaches the counter after the tablet has ended the session, so a cart outlives its session; carts open > 24h are abandoned by an hourly sweeper.*
+- [x] Tests incl. parity: billed lines show up in `itemTotals.sold`.
+
+*(Done 2026-11-12: migration `0267_carts`, `modules/cart/routes.ts`, `cart` 9 tests incl. dashboard parity.)*
 
 ## Slice 3c — tablet + merchant-web screens
 - [ ] Tablet: size picker with availability, other-branch / buy-online hints (`oos_viewed`, `other_branch_shown`, `buy_online_click`), cart screen with barcodes + cart code, assisted "billed".

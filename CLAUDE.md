@@ -487,6 +487,13 @@ default; identification stays off until both periods are chosen), `shoppers` (pe
 encrypted phone + keyed lookup hash, wiped by retention), `shopper_consents` (append-only,
 versioned), `instore_sessions.shopper_id`.
 
+**Inventory & cart** — `size_sets` (AiVastra-curated, attached to `garment_subcategories.size_set_id`),
+`merchant_catalog_variants` (size × colour, SKU, barcode unique per merchant), `variant_branch_stock`
+(status always set; a row whose `source` is not `manual` is feed-owned and refuses manual edits),
+`carts` (one per session, unguessable `cart_code`, outlives the session) and `cart_lines`. A cart line
+is not a sale: billing it writes the existing `session_items` `sold` rows and `sale_recorded`
+events, one per unit, with `billed_source` and the billed price.
+
 **Shopify** — `shopify_stores` (encrypted tokens, auto-refill subscription state),
 `shopify_store_credits` + `shopify_credit_ledger` (stores bill themselves; not
 the linked user), `shopify_shoppers`, `shopify_catalog_jobs`,
@@ -550,6 +557,7 @@ test can drive one pass directly.
 | `startWhatsappDelivery` | 5s | sends finished runs; the paid template goes out once when the window is closed |
 | `startCrmInboundConsumer` | continuous | `crm:inbound` stream → shopper messages to a brand's own WhatsApp number (`LOOKS <code>`, consent, looks, STOP). Own Redis connection for `XREADGROUP BLOCK`. Only when `CRM_IDENTIFY_ENABLED` and `CRM_DATA_KEY` |
 | `startCrmRetention` | 1h | wipes shopper profiles past the merchant's chosen retention (phone, name, session links; consent history kept), then deletes ALL in-store session photos and results past the photo period (objects first, keys nulled after). Runs whenever `CRM_DATA_KEY` is set, flag or not |
+| `startCartAbandonSweeper` | 1h | marks in-store carts still open after 24h as abandoned (they can no longer be billed) |
 | `startAnalyticsRollup` | 60s | rebuilds the `analytics_buckets` touched since its watermark (60s commit-skew lag); hourly it also rebuilds the trailing 48h, which is what corrects a retried job and a late commit. Advisory lock, so replicas never double-count |
 
 The dispatcher runs its own, separately: the stuck-job sweeper and the

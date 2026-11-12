@@ -20,6 +20,9 @@ export const ANALYTICS_SERVER_EVENTS = [
   'shopper_identified',
   'consent_recorded',
   'looks_sent',
+  // CRM phase 3: cart lines added/removed on the tablet. A billed line is a sale_recorded.
+  'cart_added',
+  'cart_removed',
 ] as const;
 export type AnalyticsServerEvent = (typeof ANALYTICS_SERVER_EVENTS)[number];
 

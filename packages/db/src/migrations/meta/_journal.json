@@ -1863,6 +1863,13 @@
       "when": 1794485760399,
       "tag": "0266_sizes_variants_stock",
       "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "7",
+      "when": 1794486017072,
+      "tag": "0267_carts",
+      "breakpoints": true
     }
   ]
 }

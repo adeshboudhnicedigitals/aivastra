@@ -74,6 +74,7 @@ import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { backgroundsRoutes } from './modules/backgrounds/routes.js';
+import { cartRoutes } from './modules/cart/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { renewalPromptRoutes } from './modules/credits/renewal-prompt.routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
@@ -491,6 +492,7 @@ export async function buildServer(env: Env) {
   await app.register(crmSettingsRoutes);
   await app.register(deviceIdentifyRoutes);
   await app.register(inventoryRoutes);
+  await app.register(cartRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);

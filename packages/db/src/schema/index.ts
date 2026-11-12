@@ -3,6 +3,7 @@ export * from './analytics.js';
 export * from './api-keys.js';
 export * from './audit.js';
 export * from './campaigns.js';
+export * from './cart.js';
 export * from './catalog.js';
 export * from './chatbot.js';
 export * from './classify-service.js';
