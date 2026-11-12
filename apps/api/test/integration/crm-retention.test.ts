@@ -1,9 +1,10 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encryptPhone, phoneHash } from '../../src/modules/crm/crypto';
-import { runCrmRetentionTick } from '../../src/modules/crm/retention';
+import { runCrmPhotoRetentionTick, runCrmRetentionTick } from '../../src/modules/crm/retention';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 import { createTestBranch, createTestDevice, createTestMerchant } from '../helpers/merchant';
@@ -124,5 +125,109 @@ describe('profile retention', () => {
       .from(schema.shoppers)
       .where(eq(schema.shoppers.phoneHash, phoneHash(KEY, phone)));
     expect(live.find((s) => s.id === old.shopperId)).toBeUndefined();
+  });
+});
+
+async function photoMerchant(photoRetentionDays: number | null) {
+  const m = await createTestMerchant(app);
+  if (photoRetentionDays !== null) {
+    await app.db
+      .insert(schema.merchantCrmSettings)
+      .values({ merchantId: m.merchantId, photoRetentionDays, profileRetentionDays: 365 });
+  }
+  const branch = await createTestBranch(app, m.merchantId);
+  const device = await createTestDevice(app, m.merchantId, branch.id);
+  return { m, branch, device };
+}
+
+/** A tablet session started `daysAgo` with one job whose photo and result really exist. */
+async function sessionWithJob(
+  ctx: Awaited<ReturnType<typeof photoMerchant>>,
+  daysAgo: number,
+  status: 'COMPLETED' | 'QUEUED' = 'COMPLETED',
+) {
+  const [session] = await app.db
+    .insert(schema.instoreSessions)
+    .values({
+      merchantId: ctx.m.merchantId,
+      branchId: ctx.branch.id,
+      deviceId: ctx.device.deviceId,
+      mode: 'kiosk',
+      startedAt: sql`now() - make_interval(days => ${daysAgo})` as unknown as Date,
+    })
+    .returning();
+  // Real key shapes: the storage router refuses keys with no routing rule.
+  const id = randomUUID();
+  const photo = keys.merchantTryonInput(ctx.m.merchantId, randomUUID(), 'jpg');
+  const result = keys.output(id);
+  const thumb = keys.outputThumb(id);
+  for (const k of [photo, result, thumb])
+    await app.storage.putObject(k, Buffer.from('x'), 'image/png');
+  const [job] = await app.db
+    .insert(schema.jobs)
+    .values({
+      id,
+      merchantId: ctx.m.merchantId,
+      userId: ctx.m.userId,
+      status,
+      creditsCharged: 5,
+      source: 'merchant_tryon',
+      sessionId: session!.id,
+      branchId: ctx.branch.id,
+      deviceId: ctx.device.deviceId,
+      customerPhotoKey: photo,
+    })
+    .returning();
+  await app.db
+    .insert(schema.jobOutputs)
+    .values({ jobId: job!.id, resultKey: result, thumbnailKey: thumb });
+  return { jobId: job!.id, keys: [photo, result, thumb] };
+}
+
+const exists = async (key: string) =>
+  app.storage.headObject(key).then(
+    () => true,
+    () => false,
+  );
+const keysOf = async (jobId: string) => {
+  const [j] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+  const [o] = await app.db
+    .select()
+    .from(schema.jobOutputs)
+    .where(eq(schema.jobOutputs.jobId, jobId));
+  return [j!.customerPhotoKey, o!.resultKey, o!.thumbnailKey];
+};
+
+describe('photo retention (all in-store photos)', () => {
+  it('deletes photo, result and thumbnail of sessions older than the period, and nulls the keys', async () => {
+    const m = await photoMerchant(30);
+    const old = await sessionWithJob(m, 31);
+    const recent = await sessionWithJob(m, 29);
+    const running = await sessionWithJob(m, 40, 'QUEUED');
+    const undecided = await sessionWithJob(await photoMerchant(null), 4000);
+
+    await runCrmPhotoRetentionTick(app);
+
+    for (const k of old.keys) expect(await exists(k), k).toBe(false);
+    expect(await keysOf(old.jobId)).toEqual([null, null, null]);
+    // The job itself stays: history keeps its status and credits.
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, old.jobId));
+    expect(job!.status).toBe('COMPLETED');
+
+    for (const kept of [recent, running, undecided]) {
+      for (const k of kept.keys) expect(await exists(k), k).toBe(true);
+      expect(await keysOf(kept.jobId)).toEqual(kept.keys);
+    }
+  });
+
+  it('a second tick finds nothing, and replicas never run it twice at once', async () => {
+    const m = await photoMerchant(30);
+    await sessionWithJob(m, 60);
+    const [a, b] = await Promise.all([
+      runCrmPhotoRetentionTick(app),
+      runCrmPhotoRetentionTick(app),
+    ]);
+    expect(Math.min(a.jobs, b.jobs)).toBe(0);
+    expect((await runCrmPhotoRetentionTick(app)).jobs).toBe(0);
   });
 });

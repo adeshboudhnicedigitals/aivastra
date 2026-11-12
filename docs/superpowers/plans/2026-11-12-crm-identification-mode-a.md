@@ -48,8 +48,8 @@ test app.
 - [x] Tests (stubbed Graph): signature with the wrong secret 401; code redeemed once; second shopper with the same code gets "expired"; consent rows; looks sent only for this session's completed jobs; STOP; a seller-lane message still reaches `messaging:inbound`. *(Done: `crm/webhook.ts` (routing before the seller path), `crm/inbound.ts`, `crm/consumer.ts` (own Redis connection for XREADGROUP BLOCK; started in `main.ts` only when the flag and key are set). `crm-identify` 12 tests; seller-lane suites `messaging- whatsapp- admin-whatsapp` unchanged and passing.)*
 
 ### Task 6: Retention
-- [ ] Hourly sweeper: shoppers past `profile_retention_days` since last visit → profile deleted (phone wiped, consents kept anonymised), session link nulled. Photo retention applied to identified sessions' customer photos and results. Dry-run count logged before delete.
-  *(Profile half done 2026-11-12: `crm/retention.ts`, `crm-retention` 3 tests. **Photo half not built**: scope is an open product question, see `docs/progress.md`.)*
+- [x] Hourly sweeper: shoppers past `profile_retention_days` since last visit → profile deleted (phone wiped, consents kept anonymised), session link nulled. Photo retention applied to identified sessions' customer photos and results. Dry-run count logged before delete.
+  *(Done 2026-11-12: `crm/retention.ts`. Photo scope decided by the user: **all in-store photos**, identified or not, by session start. Objects deleted first, keys nulled after (the nulled key is the done marker); unfinished jobs skipped; Redis lock across replicas. `crm-retention` 5 tests, objects verified gone from storage.)*
 
 ### Task 7: Tablet + merchant-web
 - [x] Tablet: on session end, "Get these looks on WhatsApp" QR (polls status), QR download always offered; `identify_shown`.

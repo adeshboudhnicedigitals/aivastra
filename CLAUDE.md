@@ -549,7 +549,7 @@ test can drive one pass directly.
 | `startWhatsappInboundConsumer` | continuous | `messaging:inbound` stream → `processInbound` (per-sender chains, 20 in flight) |
 | `startWhatsappDelivery` | 5s | sends finished runs; the paid template goes out once when the window is closed |
 | `startCrmInboundConsumer` | continuous | `crm:inbound` stream → shopper messages to a brand's own WhatsApp number (`LOOKS <code>`, consent, looks, STOP). Own Redis connection for `XREADGROUP BLOCK`. Only when `CRM_IDENTIFY_ENABLED` and `CRM_DATA_KEY` |
-| `startCrmRetention` | 1h | wipes shopper profiles past the merchant's chosen retention (phone, name, session links; consent history kept). Runs whenever `CRM_DATA_KEY` is set, flag or not |
+| `startCrmRetention` | 1h | wipes shopper profiles past the merchant's chosen retention (phone, name, session links; consent history kept), then deletes ALL in-store session photos and results past the photo period (objects first, keys nulled after). Runs whenever `CRM_DATA_KEY` is set, flag or not |
 | `startAnalyticsRollup` | 60s | rebuilds the `analytics_buckets` touched since its watermark (60s commit-skew lag); hourly it also rebuilds the trailing 48h, which is what corrects a retried job and a late commit. Advisory lock, so replicas never double-count |
 
 The dispatcher runs its own, separately: the stuck-job sweeper and the

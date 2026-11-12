@@ -15,13 +15,12 @@
     seller-lane `messaging- whatsapp- admin-whatsapp` + `device- analytics-` 32 files / 223 tests; api unit 122 / 1,235;
     merchant-web 112 tests, typecheck, lint; Android `assembleDebug` + unit tests; `biome check .` no errors.
 - **Failed / Not Done:**
-  - **Photo retention not built** (Task 6 second half): which photos it covers is an open product question (below).
-    `photo_retention_days` is stored and required, but nothing deletes photos yet.
   - Never run against a real WhatsApp number: no merchant WABA exists for testing, and Meta needs a public webhook URL.
   - Merchant-web settings and the tablet pill were not opened in a browser/device.
 - **Open Questions / outside the repo:**
-  - Photo retention scope: only identified shoppers' sessions, or every in-store session photo? Deleting results also
-    empties the merchant's try-on history for those jobs.
+  - Photo retention scope decided 2026-11-12: **all in-store session photos** (customer photo, result, thumbnail) of
+    sessions older than the merchant's period; built in `crm/retention.ts` (`crm-retention` 5 tests). Jobs stay in
+    history without images.
   - Consent wording ships as `v0-draft` and needs legal review with the DPA (spec Q6) before `CRM_IDENTIFY_ENABLED=true`.
   - Per merchant, outside the repo: their Meta app's webhook must point at `/v1/whatsapp/webhook` with our verify token,
     and subscribe to `messages`. Production needs `CRM_DATA_KEY` provisioned before any merchant connects.
