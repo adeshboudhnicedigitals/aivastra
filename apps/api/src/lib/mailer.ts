@@ -596,16 +596,15 @@ function unlimitedPlanReminderHtml(p: {
   daysRemaining: number;
   name?: string | null;
 }): string {
-  const accent =
-    p.stage === 'expired' ? '#7c2d12' : p.stage === 'three_day' ? '#b42318' : '#b26a00';
+  const accent = p.stage === 'three_day' ? '#b42318' : '#b26a00';
   const heading =
     p.stage === 'expired'
-      ? 'Your monthly plan has expired'
+      ? 'Your monthly plan has ended'
       : `Your monthly plan ends in ${p.daysRemaining} day${p.daysRemaining === 1 ? '' : 's'}`;
   const bodyText =
     p.stage === 'expired'
-      ? `Your AI Vastra monthly plan expired on <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. Your account is now using your regular credit balance.`
-      : `Your AI Vastra monthly plan is active until <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. After that, your account goes back to using your regular credit balance.`;
+      ? `Your AI Vastra monthly plan ended on <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. New merchant try-ons will now use credits from your account balance, like all your other services.`
+      : `Your AI Vastra monthly plan is active until <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. After that, new merchant try-ons will use credits from your account balance.`;
   const ctaText =
     p.stage === 'expired'
       ? 'Reach out to us to renew your plan.'
@@ -638,7 +637,7 @@ export async function sendUnlimitedPlanReminderEmail(
 ): Promise<void> {
   const subject =
     params.stage === 'expired'
-      ? 'Your monthly plan has expired'
+      ? 'Your monthly plan has ended'
       : `Your monthly plan ends in ${params.daysRemaining} day${params.daysRemaining === 1 ? '' : 's'}`;
 
   await send(apiKey, { from, to, subject, html: unlimitedPlanReminderHtml(params) });

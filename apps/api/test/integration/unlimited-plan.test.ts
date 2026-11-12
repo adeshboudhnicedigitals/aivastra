@@ -76,7 +76,7 @@ describe('unlimited plan', () => {
       });
 
       const jobId = randomUUID();
-      const balance = await atomicDeduct(app.db, user.id, 500, jobId);
+      const balance = await atomicDeduct(app.db, user.id, 500, jobId, { unlimitedPlan: true });
       expect(balance).toBe(0);
 
       const [ledgerRow] = await app.db
@@ -104,7 +104,9 @@ describe('unlimited plan', () => {
         grantedBy: user.id,
       });
 
-      await expect(atomicDeduct(app.db, user.id, 5, randomUUID())).rejects.toThrow();
+      await expect(
+        atomicDeduct(app.db, user.id, 5, randomUUID(), { unlimitedPlan: true }),
+      ).rejects.toThrow();
     });
 
     it('still enforces the balance check for a revoked plan', async () => {
@@ -117,7 +119,22 @@ describe('unlimited plan', () => {
         grantedBy: user.id,
       });
 
-      await expect(atomicDeduct(app.db, user.id, 5, randomUUID())).rejects.toThrow();
+      await expect(
+        atomicDeduct(app.db, user.id, 5, randomUUID(), { unlimitedPlan: true }),
+      ).rejects.toThrow();
+    });
+
+    it('charges credits for a non-merchant-tryon job even while the plan is active', async () => {
+      const user = await seedUser('unlimited-non-tryon@x.com', 10);
+      await app.db.insert(schema.unlimitedPlans).values({
+        userId: user.id,
+        startAt: new Date(Date.now() - DAY_MS),
+        endAt: new Date(Date.now() + 10 * DAY_MS),
+        grantedBy: user.id,
+      });
+
+      const balance = await atomicDeduct(app.db, user.id, 3, randomUUID());
+      expect(balance).toBe(7);
     });
 
     it('deducts normally for a user with no unlimited plan', async () => {
@@ -291,7 +308,7 @@ describe('unlimited plan', () => {
   });
 
   describe('resolveQueueRouting with an active unlimited plan', () => {
-    it("uses the plan's queueStream instead of the user's tier, with no balance downgrade", async () => {
+    it("ignores the plan's queueStream — the priority boost is merchant try-on only", async () => {
       const user = await seedUser('unlimited-priority-routing@x.com', 0);
       await app.db.insert(schema.unlimitedPlans).values({
         userId: user.id,
@@ -303,8 +320,8 @@ describe('unlimited plan', () => {
 
       const { resolveQueueRouting } = await import('../../src/modules/jobs/create.js');
       const routing = await resolveQueueRouting(app, user.id);
-      expect(routing.queueStream).toBe('priority');
-      expect(routing.priority).toBe(true);
+      expect(routing.queueStream).toBe('normal');
+      expect(routing.priority).toBe(false);
     });
   });
 });
