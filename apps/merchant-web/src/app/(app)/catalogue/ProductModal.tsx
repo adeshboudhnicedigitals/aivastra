@@ -1,6 +1,7 @@
 'use client';
 import type { MerchantCatalogItem } from '@aivastra/types';
 import { useEffect, useRef, useState } from 'react';
+import { VariantsPanel } from '@/components/catalogue/VariantsPanel';
 import { SpinnerIcon, UploadIcon, XIcon } from '@/components/icons';
 import { useJobStreamContext } from '@/components/job-stream-provider';
 import { C } from '@/components/tokens';
@@ -987,6 +988,9 @@ export function ProductModal({
               Offer price cannot be greater than the actual price.
             </div>
           )}
+
+          {/* CRM phase 3: sizes and per-branch stock, once the product exists. */}
+          {isEditing && initialData && <VariantsPanel itemId={initialData.id} />}
 
           {errorMsg && (
             <div

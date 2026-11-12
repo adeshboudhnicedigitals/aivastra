@@ -58,6 +58,58 @@ data class IdentifyStartResponse(
 
 data class IdentifyStatusResponse(@SerializedName("status") val status: String)
 
+// CRM phase 3: sizes with this branch's availability, and the cart (spec §6.1–6.2).
+data class OtherBranch(
+    @SerializedName("branchId") val branchId: String,
+    @SerializedName("name") val name: String,
+    @SerializedName("status") val status: String,
+)
+
+data class DeviceVariant(
+    @SerializedName("id") val id: String,
+    @SerializedName("size") val size: String,
+    @SerializedName("colour") val colour: String,
+    @SerializedName("barcode") val barcode: String?,
+    @SerializedName("sku") val sku: String?,
+    @SerializedName("pricePaise") val pricePaise: Int,
+    /** in_stock | low | out | unknown */
+    @SerializedName("status") val status: String,
+    @SerializedName("otherBranches") val otherBranches: List<OtherBranch>,
+)
+
+data class DeviceVariantsResponse(
+    @SerializedName("variants") val variants: List<DeviceVariant>,
+    @SerializedName("buyOnlineUrl") val buyOnlineUrl: String?,
+)
+
+data class CartLineAddRequest(
+    @SerializedName("variantId") val variantId: String,
+    @SerializedName("quantity") val quantity: Int = 1,
+)
+
+data class CartLine(
+    @SerializedName("id") val id: String,
+    @SerializedName("label") val label: String,
+    @SerializedName("size") val size: String,
+    @SerializedName("colour") val colour: String,
+    @SerializedName("sku") val sku: String?,
+    @SerializedName("barcode") val barcode: String?,
+    @SerializedName("quantity") val quantity: Int,
+    @SerializedName("unitPricePaise") val unitPricePaise: Int,
+    @SerializedName("billed") val billed: Boolean,
+)
+
+data class CartView(
+    @SerializedName("cartCode") val cartCode: String,
+    @SerializedName("status") val status: String,
+    @SerializedName("lines") val lines: List<CartLine>,
+    @SerializedName("totalPaise") val totalPaise: Int,
+)
+
+data class CartEnvelope(@SerializedName("cart") val cart: CartView?)
+
+class EmptyBody
+
 data class StaffLoginRequest(
     @SerializedName("email") val email: String,
     @SerializedName("password") val password: String,
@@ -99,6 +151,26 @@ interface DeviceApi {
 
     @GET("v1/device/sessions/{id}/identify")
     suspend fun identifyStatus(@Path("id") sessionId: String): Response<IdentifyStatusResponse>
+
+    @GET("v1/device/catalog/{itemId}/variants")
+    suspend fun variants(@Path("itemId") itemId: String): Response<DeviceVariantsResponse>
+
+    @GET("v1/device/sessions/{id}/cart")
+    suspend fun cart(@Path("id") sessionId: String): Response<CartEnvelope>
+
+    @POST("v1/device/sessions/{id}/cart/lines")
+    suspend fun addToCart(
+        @Path("id") sessionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body body: CartLineAddRequest,
+    ): Response<CartView>
+
+    @DELETE("v1/device/sessions/{id}/cart/lines/{lineId}")
+    suspend fun removeFromCart(@Path("id") sessionId: String, @Path("lineId") lineId: String): Response<CartView>
+
+    /** Assisted only: billed with the signed-in staff member's token (x-staff-authorization). */
+    @POST("v1/device/sessions/{id}/cart/bill")
+    suspend fun billCart(@Path("id") sessionId: String, @Body body: EmptyBody = EmptyBody()): Response<CartView>
 
     /** Merchant-web's login, used for a staff member signing in on the tablet (plan M3). */
     @POST("v1/auth/login")

@@ -37,11 +37,12 @@ object ApiClient {
         val original = chain.request()
         val builder = original.newBuilder()
         DeviceStore.token?.takeIf { it.isNotBlank() }?.let { builder.header("Authorization", "Device $it") }
-        // The server reads the staff header only to start an assisted session and for the
-        // seller's undo, so it is sent on those routes alone, not on every request.
+        // The server reads the staff header only to start an assisted session, for the seller's
+        // undo and to bill a cart, so it is sent on those routes alone, not on every request.
         val path = original.url.encodedPath
         val staffRoute = (original.method == "POST" && path.endsWith("/v1/device/sessions")) ||
-            (original.method == "DELETE" && path.contains("/v1/device/sessions/"))
+            (original.method == "POST" && path.endsWith("/cart/bill")) ||
+            (original.method == "DELETE" && path.matches(Regex(".*/v1/device/sessions/[^/]+/items/[^/]+")))
         if (staffRoute) StaffSession.validToken()?.let { builder.header(STAFF_HEADER, "Bearer $it") }
         val response = chain.proceed(builder.build())
         // Deactivated device, branch or merchant: the token is dead for good. Unpair, so the

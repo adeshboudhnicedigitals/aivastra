@@ -47,7 +47,7 @@ object SessionItemMarks {
 }
 
 /**
- * Wishlist (any session) and Sold (assisted sessions only, HLD §5.3) for one garment's result.
+ * Add to cart (any session, spec §6.1), Wishlist (any session) and Sold (assisted sessions only, HLD §5.3) for one garment's result.
  * Sold can be undone by the seller from here; after 24 hours, or for anyone else, only the
  * merchant admin can void it (server-enforced).
  */
@@ -81,8 +81,15 @@ fun SessionItemBar(catalogItemId: String, modifier: Modifier = Modifier) {
         }
     }
 
+    var addToCart by remember { mutableStateOf(false) }
+    if (addToCart) AddToCartDialog(catalogItemId = catalogItemId, onDismiss = { addToCart = false })
+
     Column(modifier = modifier, horizontalAlignment = Alignment.End) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // CRM phase 3: the cart replaces the bare Sold tap as the way to a sale (spec §6.1);
+            // Sold stays for assisted sessions until every store has variants set up.
+            Pill(label = "Add to cart", active = false, onClick = { addToCart = true })
+            CartPill()
             Pill(
                 label = if (mark.wishlisted) "♥ Wishlisted" else "♡ Wishlist",
                 active = mark.wishlisted,

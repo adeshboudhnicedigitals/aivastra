@@ -46,6 +46,13 @@ object EventReporter {
 
     fun qrShown(purpose: String) = record("qr_shown", props = mapOf("purpose" to purpose))
 
+    /** A size out of stock here was looked at (spec §6.2: demand signal, not a dead end). */
+    fun oosViewed(catalogItemId: String, variantId: String) =
+        record("oos_viewed", catalogItemId = catalogItemId, props = mapOf("variantId" to variantId))
+
+    fun otherBranchShown(catalogItemId: String, branches: Int) =
+        record("other_branch_shown", catalogItemId = catalogItemId, props = mapOf("branches" to branches))
+
     /** The WhatsApp identify QR was put in front of the shopper (consent-funnel top, spec §7). */
     fun identifyShown() = record("identify_shown", props = mapOf("mode" to "A"))
 

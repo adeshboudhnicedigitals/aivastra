@@ -1,3 +1,25 @@
+# 2026-11-12 — CRM phase 3: sizes, variants, per-branch stock, cart (local, committed, not pushed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-crm-phase3-variants-stock-cart.md`, slices 3a–3c. Decided: in kiosk mode the
+    shopper can add to the cart (spec Q3); photo retention covers all in-store photos (built in phase 2's sweeper).
+  - Migrations **`0266_sizes_variants_stock`** (size sets seeded: tops, bottoms, kids, free size;
+    `garment_subcategories.size_set_id`) and **`0267_carts`**. Additive; applied to local `tryon_dev` only.
+  - API: variants (custom size derived server-side), per-branch stock (staff own branch, feed-owned rows refuse manual
+    edits), tablet sizes with availability/other branches/buy-online, admin size sets; cart (idempotent add, out-of-stock
+    refused, remove), billing on the tablet (assisted) or by cart code in Merchant Web (kiosk); each billed unit writes
+    the existing `sold` row + `sale_recorded`, so dashboards count it (parity test); hourly abandon sweeper (24h).
+  - Tablet: Add to cart / Cart on result and download screens, barcodes on screen. Merchant Web: sizes and stock in
+    the product editor; "Bill a Cart" page.
+  - Verified: `inventory` 8, `cart` 9 (incl. dashboard parity), regression `analytics- device- merchant-analytics crm-
+    inventory cart` 22 files / 211 tests, catalogue + garment-type suites 11 / 82; api unit 122 / 1,235; workspace
+    typecheck (admin-mobile excluded); merchant-web 114 tests; Android build + unit tests; `biome check .` no errors.
+- **Failed / Not Done:**
+  - No screen opened on a device or in a browser. No CSV import for variants/stock yet (spec §6.2 BulkUploadModal);
+    admin-web has no screen for size sets (API only).
+- **Open Questions / outside the repo:**
+  - v1 checkout handoff chosen as barcodes on screen + cart code (spec Q1 had been deferred with POS).
+
 # 2026-11-12 — CRM phase 2: shopper identification on the merchant's own WhatsApp (local, committed, not pushed)
 
 - **Done:**

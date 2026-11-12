@@ -34,5 +34,7 @@ shopper can add to the cart (Q3); staff confirm billing.
 *(Done 2026-11-12: migration `0267_carts`, `modules/cart/routes.ts`, `cart` 9 tests incl. dashboard parity.)*
 
 ## Slice 3c — tablet + merchant-web screens
-- [ ] Tablet: size picker with availability, other-branch / buy-online hints (`oos_viewed`, `other_branch_shown`, `buy_online_click`), cart screen with barcodes + cart code, assisted "billed".
-- [ ] Merchant Web: product variants + per-branch stock in the product screen; "Bill a cart" page.
+- [x] Tablet: size picker with availability, other-branch / buy-online hints (`oos_viewed`, `other_branch_shown`, `buy_online_click`), cart screen with barcodes + cart code, assisted "billed".
+- [x] Merchant Web: product variants + per-branch stock in the product screen; "Bill a cart" page.
+
+*(Done 2026-11-12: tablet `CartComponents.kt` (size sheet with availability, other branches, buy-online QR reported as `qr_shown`, never as a click; cart with CODE-128 barcodes and the cart code; assisted "Mark billed"), staff header added for `/cart/bill`. Merchant Web `VariantsPanel` in the product editor (edit mode) and `/carts` "Bill a Cart" page + nav. Compiled and unit-tested; not opened on a device or in a browser.)*
