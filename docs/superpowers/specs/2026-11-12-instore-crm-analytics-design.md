@@ -16,7 +16,7 @@ drive billing, and give HQ analytics that prove what AiVastra adds to the busine
 
 | # | Decision | Chosen |
 |---|---|---|
-| 1 | Delivery modes | **All three**, chosen per merchant: A merchant's own WhatsApp number, B shared AiVastra number branded per brand, C QR download with no data (§4) |
+| 1 | Delivery modes | **All three**, chosen per merchant: A merchant's own WhatsApp number, B shared AiVastra number branded per brand, C QR download with no data (§4). **Revised 2026-11-12: A is the primary path; B is not built in phase 2 (kept in the model only), C is always offered** |
 | 2 | Who sets the mode | Merchant admin (merchant-web) **or** AiVastra admin (account console) |
 | 3 | When the shopper is identified | **At the end of the session by default** ("get these looks on WhatsApp"). Per-merchant option to ask at the start |
 | 4 | Sales source | **POS integration** (per-merchant connectors) is the target. Until it exists, an in-store **cart** that drives billing with real SKUs is the fallback (§6) |
@@ -49,7 +49,7 @@ drive billing, and give HQ analytics that prove what AiVastra adds to the busine
 | Mode | What happens at session end | Data captured |
 |---|---|---|
 | **A. Merchant's WhatsApp** | OTP + looks sent from the brand's own WhatsApp Business number | Phone, consents |
-| **B. Shared AiVastra number** (default) | Same flow from the AiVastra number, branded per brand | Phone, consents |
+| **B. Shared AiVastra number** (not built in phase 2) | Same flow from the AiVastra number, branded per brand | Phone, consents |
 | **C. QR download** | Shopper scans a QR and downloads the looks; no number asked | None |
 
 - C is always offered, including when A or B is on and the shopper declines to share a number.
@@ -60,6 +60,15 @@ drive billing, and give HQ analytics that prove what AiVastra adds to the busine
 - Shoppers and consents captured under B **stay the merchant's** when it moves to A. Marketing sent
   from A must use the merchant's own approved templates.
 - Mode changes are audited. Moving away from A or B never deletes already-captured customers.
+
+### 4.1 Decisions for mode A (2026-11-12)
+
+| # | Decision | Why |
+|---|---|---|
+| A1 | **Verify by tap-to-chat QR first; typed-number OTP later as a fallback.** The tablet shows a QR that opens WhatsApp to the brand's number with `LOOKS <code>` prefilled; the shopper sends it | WhatsApp itself proves the number, and the shopper's message opens the 24-hour service window, so looks go out as free-form messages: no per-merchant template approval and no per-OTP charge. Same pattern as the seller `CONNECT <code>` link (`messaging/identity.ts`). OTP needs approved authentication + utility templates on every merchant's account |
+| A2 | **A merchant's number is connected by manual entry first** (WABA id, phone number id, permanent token, app secret, encrypted at rest). Embedded Signup later writes the same channel row | Embedded Signup needs AiVastra approved as a Meta Tech Provider, outside the code and weeks away |
+| A3 | **Inbound routing by `metadata.phone_number_id`.** A message to a merchant channel goes to the shopper flow; anything else stays on the existing seller lane. The signature is checked with that channel's app secret | A merchant's own Meta app signs with its own secret |
+| A4 | **Order:** Android test app moved to device pairing + sessions + event upload first (HLD step 4), then phase 2 server, then phase 2 tablet screens | The test app still uses owner login and `/v1/merchant/tryon/*`, so it has no session to end |
 
 ## 5. Shopper identification flow (default: at end)
 
@@ -300,6 +309,6 @@ without rework or a breaking migration. Concretely:
   the first connector. *Deferred. The adapter seam (§9) is built regardless.*
 - **Q3** Does the shopper or only staff add to cart in kiosk mode? Kiosk carts without staff may be
   abandoned at a higher rate.
-- **Q4** Retention defaults for shopper photos and profiles, and who can change them.
-- **Q5** Who pays WhatsApp message costs in mode B: absorbed, or billed to the merchant in credits?
+- **Q4** ~~Retention defaults~~ *Answered 2026-11-12: no default. The merchant must choose a retention period for shopper photos and profiles before identification can be switched on.*
+- **Q5** ~~Who pays in mode B~~ *Moot 2026-11-12: mode A is primary, so messages are billed by Meta to the merchant's own WhatsApp Business account.*
 - **Q6** Is the DPA (data processing agreement) template a legal task already owned by someone?

@@ -62,7 +62,15 @@ import aivastra.nice.interactive.utils.CrashReporter
 import aivastra.nice.interactive.ui.screens.OnboardingPage
 import aivastra.nice.interactive.ui.screens.OutfitSelectionPage
 import aivastra.nice.interactive.ui.screens.PendingActivationPage
-import aivastra.nice.interactive.ui.screens.SignInPage
+import aivastra.nice.interactive.ui.screens.PairingPage
+import aivastra.nice.interactive.ui.components.StaffSignInDialog
+import aivastra.nice.interactive.ui.components.SessionItemBar
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import aivastra.nice.interactive.device.DeviceStore
+import aivastra.nice.interactive.device.EventReporter
+import aivastra.nice.interactive.device.InstoreSession
+import aivastra.nice.interactive.device.StaffSession
 import aivastra.nice.interactive.ui.screens.SplashPage
 import aivastra.nice.interactive.ui.screens.OutfitDetailPage
 import aivastra.nice.interactive.ui.screens.PoseGuidePage
@@ -94,6 +102,8 @@ import aivastra.nice.interactive.viewmodels.TryOnViewModel
  */
 sealed class Screen(val route: String) {
     object Splash             : Screen("splash")
+    /** Device mode: the pairing screen. Kept under the old route so every inherited "sign in
+     *  again" path lands on pairing. */
     object SignIn             : Screen("signin")
     object Onboarding         : Screen("onboarding")
     object PendingActivation  : Screen("pending_activation")
@@ -179,6 +189,17 @@ fun AppNavGraph(
     }
     LaunchedEffect(Unit) { launchedBefore = true }
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+
+    // The server stopped recognising this tablet (deactivated, or unpaired here): back to pairing
+    // from wherever the app is. ApiClient clears the token on a DEVICE_INACTIVE 401.
+    val paired by DeviceStore.paired.collectAsState()
+    LaunchedEffect(paired, currentRoute) {
+        if (!paired && currentRoute != null && currentRoute != Screen.Splash.route &&
+            currentRoute != Screen.SignIn.route
+        ) {
+            navController.navigate(Screen.SignIn.route) { popUpTo(0) { inclusive = true } }
+        }
+    }
 
     // ── Subscription-expired popup (server-driven) ─────────────────────────
     // Checked on launch and every return to the foreground, but never on the screens a
@@ -290,27 +311,10 @@ fun AppNavGraph(
                     isCheckingSession = true
                     scope.launch {
                         try {
-                            val destination = if (SessionManager.hasValidSession()) {
-                                ApiClient.setAccessToken(SessionManager.accessToken)
-                                // A session can be valid (token not expired) while the
-                                // merchant is still ONBOARDING_REQUIRED/PENDING_ACTIVATION
-                                // from a previous run — re-check status rather than
-                                // assuming ACTIVE, or catalog calls would 403 with no
-                                // explanation right after this navigation.
-                                when (val result = OnboardingRepository().getStatus()) {
-                                    is OnboardingResult.Success -> when (result.data.merchantStatus) {
-                                        MerchantStatus.ONBOARDING_REQUIRED -> {
-                                            onboardingSuggestedContactName = result.data.prefill.contactName
-                                            onboardingSuggestedCompanyName = result.data.prefill.companyName
-                                            Screen.Onboarding.route
-                                        }
-                                        MerchantStatus.PENDING_ACTIVATION -> Screen.PendingActivation.route
-                                        else -> Screen.CategorySelection.route
-                                    }
-                                    // Network hiccup at splash shouldn't block an otherwise
-                                    // valid session — fall through to Home as before.
-                                    is OnboardingResult.Failure -> Screen.CategorySelection.route
-                                }
+                            // Device mode: a paired tablet goes straight to the shopper home; the
+                            // merchant's onboarding/activation belongs to the owner, not the tablet.
+                            val destination = if (DeviceStore.paired.value) {
+                                Screen.CategorySelection.route
                             } else {
                                 Screen.SignIn.route
                             }
@@ -325,7 +329,7 @@ fun AppNavGraph(
                             }
                         } catch (e: Exception) {
                             CrashReporter.recordException(e, "NavGraph")
-                            val fallbackDestination = if (SessionManager.hasValidSession()) {
+                            val fallbackDestination = if (DeviceStore.paired.value) {
                                 Screen.CategorySelection.route
                             } else {
                                 Screen.SignIn.route
@@ -345,20 +349,9 @@ fun AppNavGraph(
         composable(
             route = Screen.SignIn.route,
         ) {
-            SignInPage(
-                onLoginSuccess = { response ->
-                    val destination = when (response.merchantStatus) {
-                        MerchantStatus.ONBOARDING_REQUIRED -> {
-                            onboardingSuggestedContactName = response.onboarding?.suggestedContactName
-                            onboardingSuggestedCompanyName = response.onboarding?.suggestedCompanyName
-                            Screen.Onboarding.route
-                        }
-                        MerchantStatus.PENDING_ACTIVATION -> Screen.PendingActivation.route
-                        // A null merchantStatus falls through to Home exactly like
-                        // before this was wired up.
-                        else -> Screen.CategorySelection.route
-                    }
-                    navController.navigate(destination) {
+            PairingPage(
+                onPaired = {
+                    navController.navigate(Screen.CategorySelection.route) {
                         popUpTo(Screen.SignIn.route) { inclusive = true }
                     }
                 }
@@ -405,12 +398,36 @@ fun AppNavGraph(
         composable(
             route = Screen.CategorySelection.route,
         ) {
+            val homeScope = rememberCoroutineScope()
+            val staffEmail by StaffSession.email.collectAsState()
+            var showStaffSignIn by remember { mutableStateOf(false) }
+            // Back on the home screen = the shopper's visit is over (HLD §5.2 step 4).
+            LaunchedEffect(Unit) { InstoreSession.end() }
+            if (showStaffSignIn) {
+                StaffSignInDialog(
+                    onDismiss = { showStaffSignIn = false },
+                    onSignedIn = { showStaffSignIn = false }
+                )
+            }
             CategorySelectionPage(
+                staffEmail = staffEmail,
+                deviceName = DeviceStore.deviceName,
+                onStaffSignInClick = { showStaffSignIn = true },
+                onStaffSignOutClick = { StaffSession.signOut() },
                 onCategorySelected = { categoryId ->
                     if (renewalPrompt != null) {
                         renewalGateOpen = true
                         return@CategorySelectionPage
                     }
+                    // A category pick opens the in-store session (kiosk, or assisted while a
+                    // staff member is signed in). An expired staff sign-in asks again; any
+                    // other failure is retried when the first try-on is created.
+                    if (StaffSession.isSignedIn && StaffSession.validToken() == null) {
+                        showStaffSignIn = true
+                        return@CategorySelectionPage
+                    }
+                    homeScope.launch { InstoreSession.start() }
+                    EventReporter.categoryViewed(categoryId)
                     // Picking a category starts a new customer session, and the photo now comes
                     // before any garment — so nothing from a previous session (photo, held
                     // results, running jobs) may carry over into this one.
@@ -451,8 +468,10 @@ fun AppNavGraph(
                     navController.navigate(Screen.ManageCredits.route)
                 },
                 onLogoutSuccess = {
-                    navController.navigate(Screen.SignIn.route) {
-                        popUpTo(0) { inclusive = true }
+                    // Unpair: the paired-state observer below routes to the pairing screen.
+                    homeScope.launch {
+                        InstoreSession.end()
+                        DeviceStore.clear()
                     }
                 }
             )
@@ -642,6 +661,8 @@ fun AppNavGraph(
             route = Screen.OutfitDetail.route,
         ) { entry ->
             selectedProduct?.let { product ->
+                // One item_viewed per garment opened (swiping to another garment re-keys this).
+                LaunchedEffect(product.id) { EventReporter.itemViewed(product.id) }
                 OutfitDetailPage(
                     product = product,
                     productList = activeSubcategoryProductList,
@@ -920,6 +941,18 @@ fun AppNavGraph(
                         navController.navigate(Screen.Download.route)
                     }
                 )
+                // Device mode: Wishlist / Sold for the garment just tried on. An overlay, so the
+                // inherited result page itself is unchanged.
+                selectedProduct?.id?.let { itemId ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        SessionItemBar(
+                            catalogItemId = itemId,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 96.dp, end = 16.dp)
+                        )
+                    }
+                }
                 if (showQuickExit) {
                     ExitSessionDialog(
                         onGoHome = {
@@ -955,6 +988,12 @@ fun AppNavGraph(
             route = Screen.MultiTryOnResults.route,
         ) {
             MultiTryOnResultsPage(
+                tileActions = { item ->
+                    SessionItemBar(
+                        catalogItemId = item.product.id,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                    )
+                },
                 items = multiTryOnUiState.items,
                 category = selectedCategory,
                 onRetryItem = { productId -> multiTryOnViewModel.retryItem(productId) },
@@ -1057,6 +1096,8 @@ fun AppNavGraph(
         composable(
             route = Screen.Download.route,
         ) {
+            // The download QR is mode C (spec §4): looks taken home with no number shared.
+            LaunchedEffect(Unit) { EventReporter.qrShown("download") }
             DownloadPage(
                 resultsList = sessionTryOnResults,
                 jobIds = sessionTryOnJobIds,

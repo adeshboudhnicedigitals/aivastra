@@ -1,6 +1,8 @@
 package aivastra.nice.interactive
 
 import android.app.Application
+import aivastra.nice.interactive.device.DeviceStore
+import aivastra.nice.interactive.device.EventReporter
 import aivastra.nice.interactive.utils.CrashReporter
 import aivastra.nice.interactive.utils.NetworkMonitor
 
@@ -9,5 +11,7 @@ class AiVastraApplication : Application() {
         super.onCreate()
         CrashReporter.init()
         NetworkMonitor.initialize(this)
+        DeviceStore.initialize(this)
+        EventReporter.initialize(this)
     }
 }

@@ -85,6 +85,7 @@ import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
 import { deviceEventsRoutes } from './modules/device/events.routes.js';
 import { deviceRoutes } from './modules/device/routes.js';
+import { deviceTabletRoutes } from './modules/device/tablet.routes.js';
 import { extensionRoutes } from './modules/extension/routes.js';
 import { fleetActivityRoutes } from './modules/fleet/activity.routes.js';
 import { fleetAgentAdminRoutes } from './modules/fleet/agent.routes.js';
@@ -481,6 +482,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantOrgDeviceRoutes);
   await app.register(deviceRoutes);
   await app.register(deviceEventsRoutes);
+  await app.register(deviceTabletRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);

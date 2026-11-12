@@ -24,6 +24,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -110,7 +111,9 @@ fun MultiTryOnResultsPage(
     onGoHome: () -> Unit,
     onGoToDownloads: () -> Unit,
     onRetake: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Device mode: per-result actions (Wishlist / Sold) drawn over each finished tile. */
+    tileActions: @Composable BoxScope.(MultiTryOnItemState) -> Unit = {}
 ) {
     val isPreview = LocalInspectionMode.current
     val statusBarH: Dp = (if (isPreview) sdp(R.dimen._28sdp) else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()) + sdp(R.dimen._10sdp)
@@ -247,7 +250,8 @@ fun MultiTryOnResultsPage(
                                 if (index >= 0) galleryStartIndex = index
                             }
                         },
-                        onRetry = { onRetryItem(item.product.id) }
+                        onRetry = { onRetryItem(item.product.id) },
+                        actions = tileActions
                     )
                 }
             }
@@ -374,7 +378,8 @@ private fun MultiTryOnTile(
     item: MultiTryOnItemState,
     onClick: () -> Unit,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    actions: @Composable BoxScope.(MultiTryOnItemState) -> Unit = {}
 ) {
     val shape = RoundedCornerShape(sdp(R.dimen._12sdp))
     Box(
@@ -401,6 +406,7 @@ private fun MultiTryOnTile(
                     alignment = Alignment.TopCenter,
                     modifier = Modifier.fillMaxSize()
                 )
+                actions(item)
             }
             MultiTryOnItemStatus.FAILED -> {
                 Column(

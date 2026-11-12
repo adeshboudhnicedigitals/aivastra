@@ -3,6 +3,8 @@ package aivastra.nice.interactive.data.models
 import com.google.gson.annotations.SerializedName
 
 data class TryOnJobRequest(
+    /** The in-store session this try-on belongs to (POST /v1/device/tryon/jobs). */
+    @SerializedName("sessionId") val sessionId: String,
     @SerializedName("merchantCatalogItemId") val merchantCatalogItemId: String,
     @SerializedName("customerPhotoKey") val customerPhotoKey: String
 )

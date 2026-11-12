@@ -2,7 +2,7 @@ package aivastra.nice.interactive.data.repository
 
 import aivastra.nice.interactive.api.ApiClient
 import aivastra.nice.interactive.api.ApiService
-import aivastra.nice.interactive.data.models.QuickTryOnJobRequest
+import aivastra.nice.interactive.device.InstoreSession
 import aivastra.nice.interactive.data.models.TryOnJobRequest
 import aivastra.nice.interactive.data.models.TryOnStatusResponse
 import aivastra.nice.interactive.utils.ErrorParser
@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.UUID
 
 sealed interface TryOnResult<out T> {
     data class Success<T>(val data: T) : TryOnResult<T>
@@ -28,36 +29,61 @@ class TryOnRepository(
      * off (e.g. UnknownHostException) shouldn't surface "Try-On Failed" immediately -
      * unlike checkJobStatus, which is naturally retried by pollJobStatus's polling loop,
      * this is a single one-shot call, so it gets its own short retry here.
+     *
+     * Device mode: every try-on belongs to the in-store session (opened here if none is open).
+     * If the server's idle sweeper ended that session, a new one is opened and the job is
+     * retried once. One Idempotency-Key per call, reused across the network retries, so a
+     * create whose response was lost is not charged twice.
      */
     suspend fun createTryOnJob(
         garmentId: String?,
         customerPhotoKey: String
     ): TryOnResult<String> = withContext(Dispatchers.IO) {
+        // Quick try-on has no catalogue item, so it cannot be a session try-on yet (plan M4).
+        if (garmentId == null) {
+            return@withContext TryOnResult.Failure("Quick Try-On isn't available on a paired tablet yet.")
+        }
+        var sessionId = when (val s = InstoreSession.start()) {
+            is InstoreSession.StartResult.Started -> s.id
+            is InstoreSession.StartResult.StaffRejected -> return@withContext TryOnResult.Failure(s.message)
+            is InstoreSession.StartResult.Failed -> return@withContext TryOnResult.Failure(s.message)
+        }
+        val idempotencyKey = UUID.randomUUID().toString()
+        var restarted = false
         var lastNetworkError: IOException? = null
-        repeat(CREATE_JOB_NETWORK_RETRY_ATTEMPTS) { attempt ->
+        var attempt = 0
+        while (attempt < CREATE_JOB_NETWORK_RETRY_ATTEMPTS) {
             try {
-                // A null garment is the quick try-on: photo only, workflow chosen in admin.
-                val response = if (garmentId == null) {
-                    apiService.createQuickTryOnJob(QuickTryOnJobRequest(customerPhotoKey))
-                } else {
-                    apiService.createTryOnJob(
-                        TryOnJobRequest(
-                            merchantCatalogItemId = garmentId,
-                            customerPhotoKey = customerPhotoKey
-                        )
+                val response = apiService.createTryOnJob(
+                    idempotencyKey,
+                    TryOnJobRequest(
+                        sessionId = sessionId,
+                        merchantCatalogItemId = garmentId,
+                        customerPhotoKey = customerPhotoKey
                     )
-                }
+                )
                 val body = response.body()
-                return@withContext if (response.isSuccessful && body != null) {
-                    TryOnResult.Success(body.jobId)
-                } else {
-                    TryOnResult.Failure(ErrorParser.parseErrorMessage(response, "Failed to create try-on job"))
+                if (response.isSuccessful && body != null) {
+                    return@withContext TryOnResult.Success(body.jobId)
                 }
+                val error = response.errorBody()?.string()
+                if (response.code() == 409 && error?.contains("SESSION_ENDED") == true && !restarted) {
+                    restarted = true
+                    sessionId = when (val s = InstoreSession.restartAfterServerEnd()) {
+                        is InstoreSession.StartResult.Started -> s.id
+                        is InstoreSession.StartResult.StaffRejected -> return@withContext TryOnResult.Failure(s.message)
+                        is InstoreSession.StartResult.Failed -> return@withContext TryOnResult.Failure(s.message)
+                    }
+                    // A different request now (new session), so it needs its own key.
+                    return@withContext createTryOnJobInSession(sessionId, garmentId, customerPhotoKey)
+                }
+                return@withContext TryOnResult.Failure(
+                    ErrorParser.parseErrorMessage(error, "Failed to create try-on job")
+                )
             } catch (e: IOException) {
                 lastNetworkError = e
-                if (attempt < CREATE_JOB_NETWORK_RETRY_ATTEMPTS - 1) {
-                    delay(CREATE_JOB_NETWORK_RETRY_DELAY_MS)
-                }
+                attempt++
+                if (attempt < CREATE_JOB_NETWORK_RETRY_ATTEMPTS) delay(CREATE_JOB_NETWORK_RETRY_DELAY_MS)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -65,6 +91,24 @@ class TryOnRepository(
             }
         }
         TryOnResult.Failure(lastNetworkError?.message ?: "Network error creating try-on job")
+    }
+
+    private suspend fun createTryOnJobInSession(
+        sessionId: String,
+        garmentId: String,
+        customerPhotoKey: String
+    ): TryOnResult<String> = try {
+        val response = apiService.createTryOnJob(
+            UUID.randomUUID().toString(),
+            TryOnJobRequest(sessionId, garmentId, customerPhotoKey)
+        )
+        val body = response.body()
+        if (response.isSuccessful && body != null) TryOnResult.Success(body.jobId)
+        else TryOnResult.Failure(ErrorParser.parseErrorMessage(response, "Failed to create try-on job"))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        TryOnResult.Failure(e.message ?: "Network error creating try-on job")
     }
 
     suspend fun checkJobStatus(jobId: String): TryOnResult<TryOnStatusResponse> = withContext(Dispatchers.IO) {

@@ -1,139 +1,61 @@
 package aivastra.nice.interactive.api
 
 import aivastra.nice.interactive.BuildConfig
-import aivastra.nice.interactive.data.models.RefreshTokenRequest
-import aivastra.nice.interactive.data.session.SessionManager
-import aivastra.nice.interactive.utils.CrashReporter
-import kotlinx.coroutines.runBlocking
-import okhttp3.Authenticator
+import aivastra.nice.interactive.device.DeviceApi
+import aivastra.nice.interactive.device.DeviceStore
+import aivastra.nice.interactive.device.StaffSession
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 /**
- * Singleton client for Retrofit networking setup.
- * Includes automatic 401 token refresh interceptor & authenticator.
+ * Retrofit setup for the merchant test app, which runs in device mode only (device-mode plan,
+ * M1): every request carries `Authorization: Device <token>` from pairing. There is no owner
+ * login and no refresh-token cycle; a device token does not expire, it is revoked.
  */
 object ApiClient {
     // Set per build in app/build.gradle.kts (local API by default; production is refused).
-    private val BASE_URL = aivastra.nice.interactive.BuildConfig.API_BASE_URL
-    @Volatile
-    private var tokenOverride: String? = null
+    private val BASE_URL = BuildConfig.API_BASE_URL
 
-    fun setAccessToken(token: String?) {
-        tokenOverride = token
-    }
+    /** Kept so the inherited owner-app code still compiles; device mode never sends a bearer. */
+    @Suppress("UNUSED_PARAMETER")
+    fun setAccessToken(token: String?) = Unit
 
-    // Full BODY logging is expensive per request (serializes every request/response) and was
-    // previously always on, even in release — kiosks running the shipped build were paying that
-    // cost on every API call for no benefit, plus logging full bodies (tokens, personal data) in
-    // production logs is also unnecessary exposure.
+    // Full BODY logging only in debug: bodies carry tokens and shopper photos' keys.
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
+        redactHeader("Authorization")
+        redactHeader(STAFF_HEADER)
     }
 
-    // Unauthenticated HTTP client for Auth endpoints (login, refresh, logout).
-    // MUST NOT attach Authorization headers to prevent token refresh deadlock or server rejection!
-    private val rawOkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(loggingInterceptor)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private const val STAFF_HEADER = "x-staff-authorization"
 
-    private val rawRetrofit: Retrofit = Retrofit.Builder()
-        .baseUrl(BASE_URL)
-        .client(rawOkHttpClient)
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
-
-    val authApiService: ApiService = rawRetrofit.create(ApiService::class.java)
-
-    // Serialized lock for token refresh pattern
-    private val refreshLock = Any()
-
-    // Single-flight refresh, shared by the request interceptor (proactive — before a request
-    // that already has a dead/missing access token goes out) and the Authenticator (reactive —
-    // when a request 401s despite looking valid locally, e.g. server-side revocation). Without
-    // the proactive path, any request made while the access token was merely expired or never
-    // set went out with no Authorization header at all and failed with "missing bearer" before
-    // ever getting a chance to refresh.
-    private fun refreshAccessTokenBlocking(): String? = synchronized(refreshLock) {
-        if (SessionManager.hasValidAccessToken()) {
-            return@synchronized SessionManager.accessToken
+    private val deviceAuth = Interceptor { chain ->
+        val original = chain.request()
+        val builder = original.newBuilder()
+        DeviceStore.token?.takeIf { it.isNotBlank() }?.let { builder.header("Authorization", "Device $it") }
+        // The server reads the staff header only to start an assisted session and for the
+        // seller's undo, so it is sent on those routes alone, not on every request.
+        val path = original.url.encodedPath
+        val staffRoute = (original.method == "POST" && path.endsWith("/v1/device/sessions")) ||
+            (original.method == "DELETE" && path.contains("/v1/device/sessions/"))
+        if (staffRoute) StaffSession.validToken()?.let { builder.header(STAFF_HEADER, "Bearer $it") }
+        val response = chain.proceed(builder.build())
+        // Deactivated device, branch or merchant: the token is dead for good. Unpair, so the
+        // UI goes back to the pairing screen instead of failing every call.
+        if (response.code == 401 && DeviceStore.token != null &&
+            response.peekBody(4096).string().contains("\"DEVICE_INACTIVE\"")
+        ) {
+            DeviceStore.clear()
         }
-
-        val currentRefreshToken = SessionManager.refreshToken
-        if (currentRefreshToken.isNullOrBlank()) {
-            SessionManager.clear()
-            return@synchronized null
-        }
-
-        try {
-            val refreshResponse = runBlocking {
-                authApiService.refreshToken(RefreshTokenRequest(currentRefreshToken, "kiosk"))
-            }
-
-            if (refreshResponse.isSuccessful) {
-                val body = refreshResponse.body()
-                val newAccessToken = body?.accessToken
-                if (!newAccessToken.isNullOrBlank()) {
-                    val newRefreshToken = body.refreshToken?.takeIf { it.isNotBlank() } ?: currentRefreshToken
-                    SessionManager.save(newAccessToken, newRefreshToken)
-                    setAccessToken(newAccessToken)
-                    return@synchronized newAccessToken
-                }
-            }
-
-            // If refresh token explicitly expired or invalid (400, 401, 403), clear session
-            if (refreshResponse.code() in listOf(400, 401, 403)) {
-                SessionManager.clear()
-            }
-        } catch (e: Exception) {
-            CrashReporter.recordException(e, "ApiClient")
-        }
-
-        null
-    }
-
-    private val tokenAuthenticator = Authenticator { _, response ->
-        if (response.responseCount > 1) {
-            // Prevent infinite loop if retried request also returns 401
-            return@Authenticator null
-        }
-
-        val failedRequestToken = response.request.header("Authorization")?.removePrefix("Bearer ")
-        val newAccessToken = refreshAccessTokenBlocking()
-        if (newAccessToken.isNullOrBlank() || newAccessToken == failedRequestToken) {
-            // Either refresh failed outright, or it just handed back the same token that
-            // already 401'd (server-side revocation) — retrying would only loop.
-            null
-        } else {
-            response.request.newBuilder()
-                .header("Authorization", "Bearer $newAccessToken")
-                .build()
-        }
+        response
     }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .addInterceptor { chain ->
-            try {
-                if (!SessionManager.hasValidAccessToken() && !SessionManager.refreshToken.isNullOrBlank()) {
-                    refreshAccessTokenBlocking()
-                }
-            } catch (_: Exception) {}
-            val activeToken = SessionManager.accessToken ?: tokenOverride
-            val request = chain.request().newBuilder().apply {
-                activeToken?.takeIf { it.isNotBlank() }?.let {
-                    header("Authorization", "Bearer $it")
-                }
-            }.build()
-            chain.proceed(request)
-        }
-        .authenticator(tokenAuthenticator)
+        .addInterceptor(deviceAuth)
         .addInterceptor(loggingInterceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -147,15 +69,8 @@ object ApiClient {
         .build()
 
     val apiService: ApiService = retrofit.create(ApiService::class.java)
-}
+    val deviceApi: DeviceApi = retrofit.create(DeviceApi::class.java)
 
-private val Response.responseCount: Int
-    get() {
-        var count = 1
-        var prior = priorResponse
-        while (prior != null) {
-            count++
-            prior = prior.priorResponse
-        }
-        return count
-    }
+    /** Same service; the owner app's separate unauthenticated client is not needed any more. */
+    val authApiService: ApiService get() = apiService
+}

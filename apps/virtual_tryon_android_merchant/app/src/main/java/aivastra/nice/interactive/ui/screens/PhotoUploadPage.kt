@@ -76,6 +76,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.zxing.BarcodeFormat
+import aivastra.nice.interactive.device.EventReporter
 import com.google.zxing.qrcode.QRCodeWriter
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.camera.InternalCameraView
@@ -365,6 +366,9 @@ fun PhotoUploadPage(
                                 UploadChoiceCard(
                                     visual = {
                                         val qrUrl = uiState.qrUrl
+                                        LaunchedEffect(qrUrl) {
+                                            if (qrUrl != null) EventReporter.qrShown("photo_upload")
+                                        }
                                         when {
                                             uiState.isQrLoading && !isPreview -> CircularProgressIndicator(
                                                 color = Color(0xFFE6A01C),

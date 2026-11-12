@@ -34,7 +34,9 @@ import retrofit2.http.Query
 import retrofit2.http.Path
 
 /**
- * Retrofit interface defining all authentication network endpoints.
+ * Retrofit endpoints inherited from the owner app. The try-on path (catalog, photo, jobs) now
+ * points at their /v1/device twins (device-mode plan, M2); the owner-only endpoints below stay
+ * declared but are unreachable from device-mode navigation.
  */
 interface ApiService {
 
@@ -42,26 +44,27 @@ interface ApiService {
     @GET("v1/config/app-video")
     suspend fun getAppVideoConfig(): Response<AppVideoConfigResponse>
 
-    @POST("v1/merchant/tryon/upload-sessions")
+    @POST("v1/device/tryon/upload-sessions")
     suspend fun createUploadSession(): Response<CreateUploadSessionResponse>
 
-    @GET("v1/merchant/tryon/upload-sessions/{token}")
+    @GET("v1/device/tryon/upload-sessions/{token}")
     suspend fun getUploadSessionStatus(
         @Path("token") token: String
     ): Response<UploadSessionStatusResponse>
 
-    @POST("v1/merchant/tryon/presign")
+    @POST("v1/device/tryon/presign")
     suspend fun presignCustomerPhoto(
         @Body request: PresignRequest
     ): Response<PresignResponse>
 
-    @GET("v1/merchant/tryon/photo-url")
+    @GET("v1/device/tryon/photo-url")
     suspend fun getPhotoUrl(
         @Query("r2Key") r2Key: String
     ): Response<aivastra.nice.interactive.data.models.PhotoUrlResponse>
 
-    @POST("v1/merchant/tryon/jobs")
+    @POST("v1/device/tryon/jobs")
     suspend fun createTryOnJob(
+        @retrofit2.http.Header("Idempotency-Key") idempotencyKey: String,
         @Body request: aivastra.nice.interactive.data.models.TryOnJobRequest
     ): Response<aivastra.nice.interactive.data.models.TryOnJobResponse>
 
@@ -70,7 +73,7 @@ interface ApiService {
         @Body request: aivastra.nice.interactive.data.models.QuickTryOnJobRequest
     ): Response<aivastra.nice.interactive.data.models.TryOnJobResponse>
 
-    @GET("v1/merchant/tryon/jobs/{jobId}")
+    @GET("v1/device/tryon/jobs/{jobId}")
     suspend fun getTryOnJobStatus(
         @Path("jobId") jobId: String
     ): Response<aivastra.nice.interactive.data.models.TryOnStatusResponse>
@@ -85,13 +88,13 @@ interface ApiService {
      * here so the admin-curated demo store items (gated by merchants.demoData) are
      * deliberately requested rather than relying on that implicit default.
      */
-    @GET("v1/merchant/catalog/subcategories")
+    @GET("v1/device/catalog/subcategories")
     suspend fun getSubcategories(
         @Query("category") category: String,
         @Query("includeDemo") includeDemo: Boolean = true
     ): Response<SubcategoryResponse>
 
-    @GET("v1/merchant/catalog")
+    @GET("v1/device/catalog")
     suspend fun getCatalog(
         @Query("includeDemo") includeDemo: Boolean = true
     ): Response<CatalogResponse>

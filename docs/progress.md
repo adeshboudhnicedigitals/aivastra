@@ -1,3 +1,30 @@
+# 2026-11-12 — Merchant Android test app on the device model + mode-A decisions (local, committed, not pushed)
+
+- **Done:**
+  - Spec `2026-11-12-instore-crm-analytics-design.md` §4.1 (new): mode A (merchant's own WhatsApp) is primary, B not built
+    in phase 2; shopper verified by tap-to-chat QR first, typed OTP later; merchant numbers connected by manual entry
+    first (Embedded Signup later); inbound routed by `phone_number_id`. Q4 answered (merchant must choose retention), Q5 moot.
+  - Plan `docs/superpowers/plans/2026-11-12-merchant-android-device-mode.md` (HLD build-order step 4, test app only):
+    API device twins `GET /v1/device/catalog`, `/catalog/subcategories`, `/tryon/photo-url`, `POST|GET
+    /v1/device/tryon/upload-sessions[/:token]` (shared functions with the owner routes) and `shareUrl` on device job status.
+    `apps/virtual_tryon_android_merchant` now pairs with a code, runs kiosk/assisted sessions, creates try-ons in the
+    session, records Wishlist/Sold (+ seller undo) and uploads tablet events. `apps/virtual_tryon_android_multi_flow`
+    (the shipped app) untouched.
+  - Verified: `device-tablet` 5 new tests; `device- analytics- merchant-catalog merchant-tryon merchant-org
+    merchant-analytics` 29 files / 274 tests; api typecheck; `biome check .` no errors; Android `assembleDebug` and
+    `testDebugUnitTest` (EventQueueCore 8 tests). The app's exact request sequence driven against the local API for
+    both kiosk and assisted sessions, all expected statuses; the resulting `analytics_events` rows are complete.
+  - Local `tryon_dev` only: test merchant "Heatmap Check Co" set `demo_data=true`, one catalogue item (+ subcategory)
+    copied into it from "ND testing", one staff user `staff-check-*@local.test`, two paired test devices.
+- **Failed / Not Done:**
+  - Not run on a device or emulator: no emulator system image is installed (`~/Android/Sdk` has the emulator binary
+    and KVM, but no `system-images`/AVD) and no tablet was connected. UI (pairing screen, menu, Wishlist/Sold overlay)
+    is compiled, not seen.
+  - Quick Try-On is hidden on paired tablets (a session `tried` row needs a catalogue item).
+- **Open Questions / outside the repo:**
+  - Plan M3 was revised in execution: `/v1/auth/login-mobile` is the AiVastra admin app's login; staff use
+    `/v1/auth/login` with the token kept in memory only.
+
 # 2026-11-12 — Analytics phase 1: events foundation (local, not committed)
 
 - **Done:**

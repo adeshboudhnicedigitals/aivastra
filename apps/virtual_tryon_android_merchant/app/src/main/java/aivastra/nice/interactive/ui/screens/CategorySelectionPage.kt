@@ -81,12 +81,9 @@ import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import aivastra.nice.interactive.R
-import aivastra.nice.interactive.data.repository.PlanRepository
 import aivastra.nice.interactive.data.models.PlanSummary
 import aivastra.nice.interactive.data.models.UserPlan
 import aivastra.nice.interactive.data.repository.MerchantResult
-import aivastra.nice.interactive.data.repository.UserRepository
-import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.ui.components.AppDialog
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.ButtonGradient
@@ -134,6 +131,11 @@ fun CategorySelectionPage(
     onReportsClick: () -> Unit = {},
     onManageCreditsClick: () -> Unit = {},
     onLogoutSuccess: () -> Unit = {},
+    /** Device mode: who is signed in for assisted sessions (null = kiosk). */
+    staffEmail: String? = null,
+    deviceName: String? = null,
+    onStaffSignInClick: () -> Unit = {},
+    onStaffSignOutClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -147,16 +149,14 @@ fun CategorySelectionPage(
 
     var showProfileMenu by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
-    var isLoggingOut by remember { mutableStateOf(false) }
 
-    val scope = rememberCoroutineScope()
-    val userEmail = remember { SessionManager.userEmail ?: "user@aivastra.com" }
 
     // The plan comes from the backend (type, start and expiry dates, status). A failed load
     // leaves it null and the card hidden — an ancillary widget shouldn't put an error over
     // the whole screen, nor claim "No plan" because of a flaky connection.
-    var plan by remember { mutableStateOf<PlanSummary?>(null) }
-    LaunchedEffect(Unit) { plan = PlanRepository().getSummary() }
+    // Device mode: the plan is the merchant owner's, read with the owner's login, which a paired
+    // tablet does not have. The card stays hidden.
+    val plan: PlanSummary? = null
 
     // ── Compute dynamic card height from actual screen space ───────────────
     // BoxWithConstraints gives us real maxHeight at composition time, enabling
@@ -320,38 +320,34 @@ fun CategorySelectionPage(
                                                         modifier = Modifier.padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._4sdp))
                                                     )
                                                 }
-                                                ProfileMenuItem(
-                                                    leadingIcon = {
-                                                        Icon(Icons.Default.Person, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
-                                                    },
-                                                    title = "My Profile",
-                                                    subtitle = "View and edit your profile",
-                                                    onClick = { showProfileMenu = false; onProfileClick() }
-                                                )
-                                                ProfileMenuItem(
-                                                    leadingIcon = {
-                                                        Icon(painterResource(R.drawable.ic_cloud_upload), null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
-                                                    },
-                                                    title = "Upload Products",
-                                                    subtitle = "Add your products",
-                                                    onClick = { showProfileMenu = false; onUploadProductsClick() }
-                                                )
-                                                ProfileMenuItem(
-                                                    leadingIcon = {
-                                                        Icon(Icons.AutoMirrored.Filled.List, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
-                                                    },
-                                                    title = "Reports",
-                                                    subtitle = "View daily activity",
-                                                    onClick = { showProfileMenu = false; onReportsClick() }
-                                                )
-                                                ProfileMenuItem(
-                                                    leadingIcon = {
-                                                        Icon(Icons.Default.Star, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
-                                                    },
-                                                    title = "Manage Plan",
-                                                    subtitle = "View plans & renew",
-                                                    onClick = { showProfileMenu = false; onManageCreditsClick() }
-                                                )
+                                                deviceName?.let {
+                                                    Text(
+                                                        it,
+                                                        color = Color.White.copy(alpha = 0.55f),
+                                                        fontSize = ssp(R.dimen._10ssp),
+                                                        fontFamily = PoppinsFamily,
+                                                        modifier = Modifier.padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._4sdp))
+                                                    )
+                                                }
+                                                if (staffEmail == null) {
+                                                    ProfileMenuItem(
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.Person, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                        },
+                                                        title = "Staff sign in",
+                                                        subtitle = "Run assisted sessions",
+                                                        onClick = { showProfileMenu = false; onStaffSignInClick() }
+                                                    )
+                                                } else {
+                                                    ProfileMenuItem(
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.Person, null, tint = Color(0xFFD88A18), modifier = Modifier.size(sdp(R.dimen._18sdp)))
+                                                        },
+                                                        title = "Staff sign out",
+                                                        subtitle = staffEmail,
+                                                        onClick = { showProfileMenu = false; onStaffSignOutClick() }
+                                                    )
+                                                }
                                                 HorizontalDivider(
                                                     color = Color.White.copy(alpha = 0.12f),
                                                     modifier = Modifier.padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._4sdp))
@@ -360,8 +356,8 @@ fun CategorySelectionPage(
                                                     leadingIcon = {
                                                         Icon(Icons.Default.ExitToApp, null, tint = Color(0xFFFF6A4D), modifier = Modifier.size(sdp(R.dimen._18sdp)))
                                                     },
-                                                    title = "Log Out",
-                                                    subtitle = "Sign out from your account",
+                                                    title = "Unpair tablet",
+                                                    subtitle = "Needs a new code from Merchant Web",
                                                     titleColor = Color(0xFFFF6A4D),
                                                     showChevron = false,
                                                     onClick = { showProfileMenu = false; showLogoutDialog = true }
@@ -377,29 +373,20 @@ fun CategorySelectionPage(
 
                         // ── Title ───────────────────────────────────────────
                         Box(modifier = Modifier.fillMaxWidth()) {
-                            // Quick try-on sits beside the heading: one camera photo, no category.
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
-                                    .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
-                                    .clickable(onClick = onQuickTryOnClick)
-                                    .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._8sdp)),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    painterResource(R.drawable.camera_icon_),
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(sdp(R.dimen._16sdp))
-                                )
-                                Spacer(Modifier.width(sdp(R.dimen._6sdp)))
+                            // Device mode: Quick Try-On is hidden (plan M4). The pill shows who is
+                            // running sessions instead, so staff can see assisted mode is on.
+                            if (staffEmail != null) {
                                 Text(
-                                    "Quick Try-On",
+                                    "Assisted · $staffEmail",
                                     color = Color.White,
-                                    fontSize = ssp(R.dimen._12ssp),
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = PoppinsFamily
+                                    fontSize = ssp(R.dimen._10ssp),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = PoppinsFamily,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterEnd)
+                                        .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
+                                        .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
+                                        .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._6sdp))
                                 )
                             }
                             Column {
@@ -478,32 +465,19 @@ fun CategorySelectionPage(
                 }
             }
 
-            // ── Logout dialog ───────────────────────────────────────────────
+            // ── Unpair dialog ───────────────────────────────────────────────
             if (showLogoutDialog) {
                 AppDialog(
-                    title = "Confirm Logout",
-                    message = "Are you sure you want to log out?",
-                    subMessage = "Logged in as: $userEmail",
+                    title = "Unpair this tablet?",
+                    message = "The tablet stops working until it is paired again with a new code from Merchant Web.",
                     icon = Icons.Default.ExitToApp,
-                    warningText = "You will need to sign in again to access your account.",
-                    confirmText = "Yes, Logout",
+                    confirmText = "Unpair",
                     cancelText = "Cancel",
-                    isLoading = isLoggingOut,
                     onConfirm = {
-                        if (isLoggingOut) return@AppDialog
-                        isLoggingOut = true
-                        scope.launch {
-                            val refreshToken = SessionManager.refreshToken ?: ""
-                            if (refreshToken.isNotEmpty()) {
-                                UserRepository().logoutDevice(refreshToken)
-                            }
-                            SessionManager.clear()
-                            isLoggingOut = false
-                            showLogoutDialog = false
-                            onLogoutSuccess()
-                        }
+                        showLogoutDialog = false
+                        onLogoutSuccess()
                     },
-                    onDismiss = { if (!isLoggingOut) showLogoutDialog = false }
+                    onDismiss = { showLogoutDialog = false }
                 )
             }
         }

@@ -409,7 +409,15 @@ export async function deviceRoutes(app: FastifyInstance) {
               .then((r) => r.url)
               .catch(() => null)
           : null;
-      return { id: job.id, status: job.status, errorCode: job.errorCode, resultUrl };
+      // shareUrl duplicates resultUrl for the Android app, whose status model reads that name
+      // from the owner route (device-mode plan, M6).
+      return {
+        id: job.id,
+        status: job.status,
+        errorCode: job.errorCode,
+        resultUrl,
+        shareUrl: resultUrl,
+      };
     },
   );
 }
