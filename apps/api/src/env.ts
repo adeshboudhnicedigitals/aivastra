@@ -76,6 +76,10 @@ const Env = z.object({
   // GPU fleet alert emails. Opt-in: with no recipients nothing is ever sent, which is what keeps a
   // local dev stack (that holds a real RESEND_API_KEY) from emailing anyone about real incidents.
   FLEET_ALERT_EMAILS: z.string().optional(),
+  // Operator mail when a shop installs the Shopify app for the first time. Opt-in for the same
+  // reason as FLEET_ALERT_EMAILS: unset means nothing is sent, so a dev stack holding a real
+  // RESEND_API_KEY can't email the team about test installs.
+  SHOPIFY_INSTALL_NOTIFY_EMAILS: z.string().optional(),
   // Where the email's "open dashboard" link points; omitted from the email when unset.
   FLEET_DASHBOARD_URL: optionalUrl(),
   RAZORPAY_KEY_ID: z.string().min(1).optional(),
