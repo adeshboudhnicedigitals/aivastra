@@ -1,6 +1,8 @@
 import {
   AnalyticsBreakdownQuery,
   type AnalyticsBreakdownResponse,
+  AnalyticsHeatmapQuery,
+  type AnalyticsHeatmapResponse,
   AnalyticsQuery,
   type AnalyticsSummaryResponse,
   AnalyticsTimeseriesQuery,
@@ -8,6 +10,7 @@ import {
 } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 import { LOW_CREDIT_THRESHOLD } from '../../credits/low-credit-alert-scheduler.js';
+import { heatmapCells } from './heatmap.js';
 import { resolveWindow } from './params.js';
 import {
   breakdownRows,
@@ -82,6 +85,23 @@ export async function merchantAnalyticsRoutes(app: FastifyInstance) {
       return {
         window: { from: window.from, to: window.to, tz: window.tz },
         points: await dailyPoints(app.db, scope, window),
+      };
+    },
+  );
+
+  // Read from analytics_buckets (rolled up every minute), so it trails live activity by up to
+  // ~2 minutes; the endpoints above stay on source tables (plan D2).
+  app.get(
+    '/v1/merchant/analytics/heatmap',
+    { preHandler: app.requireMerchantMember, schema: { querystring: AnalyticsHeatmapQuery } },
+    async (req): Promise<AnalyticsHeatmapResponse> => {
+      const q = req.query as AnalyticsHeatmapQuery;
+      const window = await resolveWindow(app.db, q, new Date());
+      const scope = await resolveScope(app.db, req.merchantMember!, q);
+      return {
+        window: { from: window.from, to: window.to, tz: window.tz },
+        metric: q.metric,
+        cells: await heatmapCells(app.db, scope, window, q.metric),
       };
     },
   );

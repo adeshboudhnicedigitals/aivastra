@@ -1,10 +1,11 @@
 'use client';
-import type { AnalyticsBreakdownRow } from '@aivastra/types';
+import type { AnalyticsBreakdownRow, AnalyticsHeatmapMetric } from '@aivastra/types';
 import { MousePointerClick, Shirt, ShoppingBag, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { FunnelCard } from '@/components/analytics/FunnelCard';
 import { KpiCard, type KpiDelta } from '@/components/analytics/KpiCard';
+import { PeakHoursHeatmap } from '@/components/analytics/PeakHoursHeatmap';
 import { type PickerState, RangePicker } from '@/components/analytics/RangePicker';
 import { TrendLineChart } from '@/components/analytics/TrendLineChart';
 import { useSession } from '@/components/session-provider';
@@ -13,6 +14,7 @@ import { ListState } from '@/components/ui/state';
 import {
   ANALYTICS_TZ,
   useAnalyticsBreakdown,
+  useAnalyticsHeatmap,
   useAnalyticsSummary,
   useAnalyticsTimeseries,
 } from '@/lib/analytics';
@@ -138,6 +140,59 @@ function BranchTable({ rows }: { rows: AnalyticsBreakdownRow[] }) {
   );
 }
 
+const HEAT_METRICS: { id: AnalyticsHeatmapMetric; label: string }[] = [
+  { id: 'sessions', label: 'Sessions' },
+  { id: 'tryons', label: 'Try-ons' },
+];
+
+function MetricToggle({
+  value,
+  onChange,
+}: {
+  value: AnalyticsHeatmapMetric;
+  onChange: (m: AnalyticsHeatmapMetric) => void;
+}) {
+  return (
+    <fieldset
+      aria-label="Peak hours metric"
+      style={{
+        display: 'flex',
+        gap: 2,
+        padding: 2,
+        borderRadius: 8,
+        border: `1px solid ${C.border2}`,
+        alignSelf: 'flex-start',
+        margin: 0,
+        minWidth: 0,
+      }}
+    >
+      {HEAT_METRICS.map((m) => {
+        const on = m.id === value;
+        return (
+          <button
+            key={m.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(m.id)}
+            style={{
+              border: 'none',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              background: on ? M.brandTint : 'transparent',
+              color: on ? M.brand : C.mid,
+            }}
+          >
+            {m.label}
+          </button>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const [picker, setPicker] = useState<PickerState>({ choice: '30d', from: '', to: '' });
   const range = useMemo(() => {
@@ -154,6 +209,8 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
   const previous = useAnalyticsSummary(prev);
   const series = useAnalyticsTimeseries(range);
   const branches = useAnalyticsBreakdown(range, 'branch', isAdmin);
+  const [heatMetric, setHeatMetric] = useState<AnalyticsHeatmapMetric>('sessions');
+  const heatmap = useAnalyticsHeatmap(range, heatMetric);
 
   const s = summary.data;
   const p = previous.data;
@@ -261,6 +318,23 @@ function Dashboard({ isAdmin }: { isAdmin: boolean }) {
           <FunnelCard sessions={s?.sessions ?? 0} tried={s?.tried ?? 0} sold={s?.sold ?? 0} />
         </section>
       </div>
+
+      <section style={card}>
+        <CardHead
+          title="Peak Hours"
+          subtitle="When shoppers visit, by weekday and hour (India time)."
+          action={<MetricToggle value={heatMetric} onChange={setHeatMetric} />}
+        />
+        <ListState
+          status={heatmap.status}
+          isEmpty={false}
+          emptyText=""
+          error="Could not load peak hours."
+          onRetry={() => void heatmap.refetch()}
+        >
+          <PeakHoursHeatmap cells={heatmap.data?.cells ?? []} metric={heatMetric} />
+        </ListState>
+      </section>
 
       {isAdmin && (
         <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

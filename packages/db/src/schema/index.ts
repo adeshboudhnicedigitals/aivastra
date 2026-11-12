@@ -1,4 +1,5 @@
 export * from './admin.js';
+export * from './analytics.js';
 export * from './api-keys.js';
 export * from './audit.js';
 export * from './campaigns.js';

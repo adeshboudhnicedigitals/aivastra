@@ -474,6 +474,13 @@ catalogs, `params` JSONB), `job_outputs`, `job_events`.
 **Merchant & widget** — `merchants` (one per user; no balance of its own —
 merchant spend draws from `user_credits`), `merchant_payments`, `kiosk_devices`.
 
+**In-store analytics** — `analytics_events` (append-only, no foreign keys:
+server events written in the same transaction as their source write, plus
+tablet events from `POST /v1/device/events`, deduped on `(device_id,
+client_event_id)`), `analytics_buckets` (15-minute UTC rollups; try-on outcomes
+are *derived* from `jobs` here, never emitted by the dispatcher),
+`analytics_rollup_state` (the rollup watermark). Advisory only — see Invariants.
+
 **Shopify** — `shopify_stores` (encrypted tokens, auto-refill subscription state),
 `shopify_store_credits` + `shopify_credit_ledger` (stores bill themselves; not
 the linked user), `shopify_shoppers`, `shopify_catalog_jobs`,
@@ -535,6 +542,7 @@ test can drive one pass directly.
 | `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
 | `startWhatsappInboundConsumer` | continuous | `messaging:inbound` stream → `processInbound` (per-sender chains, 20 in flight) |
 | `startWhatsappDelivery` | 5s | sends finished runs; the paid template goes out once when the window is closed |
+| `startAnalyticsRollup` | 60s | rebuilds the `analytics_buckets` touched since its watermark (60s commit-skew lag); hourly it also rebuilds the trailing 48h, which is what corrects a retried job and a late commit. Advisory lock, so replicas never double-count |
 
 The dispatcher runs its own, separately: the stuck-job sweeper and the
 `XPENDING` recovery pass (`apps/dispatcher/src/stream/`).
@@ -613,6 +621,11 @@ hangs on streaming responses.
   double-charge one Shopify had actually accepted.
 - `shopify_widget_events` is advisory only. Never read it for a credit, limit, or
   authorization decision.
+- `analytics_events` and `analytics_buckets` are advisory only, under the same
+  rule. Client (tablet) events take merchant/branch/device from the device token,
+  never the body, and may only use the `ANALYTICS_CLIENT_EVENTS` allowlist
+  (`packages/types/src/analytics-events.ts`); server event names from a client are
+  a 400. Rollups delete and rebuild a bucket, never increment one.
 - No schema or data changes against production. See "Production safety" above.
 
 ---

@@ -83,6 +83,7 @@ import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
+import { deviceEventsRoutes } from './modules/device/events.routes.js';
 import { deviceRoutes } from './modules/device/routes.js';
 import { extensionRoutes } from './modules/extension/routes.js';
 import { fleetActivityRoutes } from './modules/fleet/activity.routes.js';
@@ -479,6 +480,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantBrandRoutes);
   await app.register(merchantOrgDeviceRoutes);
   await app.register(deviceRoutes);
+  await app.register(deviceEventsRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);

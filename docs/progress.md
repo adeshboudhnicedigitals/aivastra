@@ -1,3 +1,37 @@
+# 2026-11-12 — Analytics phase 1: events foundation (local, not committed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-analytics-events-foundation.md`, Tasks 1–8. Spec
+    `docs/superpowers/specs/2026-11-12-instore-crm-analytics-design.md` §7.1 updated with decisions D1–D4.
+  - Migration **`0264_analytics_events_foundation`**: `analytics_events`, `analytics_buckets`,
+    `analytics_rollup_state`, plus an idempotent backfill from `instore_sessions` / `session_items`. Applied to
+    local `tryon_dev` only. Production read-only check (2026-11-12, `default_transaction_read_only=on`):
+    `instore_sessions` 0, `session_items` 0, `jobs` with a session 0, so the backfill is a no-op there; prod's latest
+    applied migration is 0263 (same `created_at` as the local journal) and `origin/dev` has no newer migration,
+    so 0264 is free as of this date.
+  - Server events in the same transaction as their source write (session start/end incl. idle sweeper, try-on
+    charge, wishlist, sale, both void paths). `POST /v1/device/events` for tablet events (allowlist, per-event
+    rejection, per-device rate limit, dedupe on client id, skew clamp, 7-day drop).
+  - `startAnalyticsRollup` (60s, 15-minute UTC buckets, hourly 48h safety pass) wired in `apps/api/src/main.ts`.
+  - `GET /v1/merchant/analytics/heatmap` and the merchant-web "Peak Hours" card on the overview dashboard.
+    Existing summary/timeseries/breakdown endpoints unchanged (D2); `analytics-parity.test.ts` proves bucket totals
+    equal them for merchant/branch/staff scopes.
+  - Verified: integration `analytics- device- merchant-analytics merchant-tryon merchant-quick-tryon merchant-org`
+    21 files / 203 tests pass; api unit 121 files / 1,230; types 80; merchant-web 21 files / 107; workspace typecheck
+    (admin-mobile excluded) clean; `biome check .` no errors.
+  - Manual, local only: API + merchant-web dev against `tryon_dev`, 3 kiosk sessions and one `qr_shown` event via
+    curl with a seeded device; after one tick the dashboard showed "Busiest: Thu 4 PM (3 sessions)", matching
+    the IST time. Screenshots at desktop and 390px width; the card scrolls inside itself. Servers stopped.
+    Local seed left in `tryon_dev`: merchant "Heatmap Check Co" (`heatmap-check-*@local.test`), branch, device.
+- **Failed / Not Done:**
+  - Hover readout not exercised in a browser (only the default "Busiest" readout and the metric toggle were).
+  - Dark mode screenshot rendered identical to light: the app's theme does not follow `prefers-color-scheme`, so
+    the dark tokens were not seen. The card uses only `C`/`M` tokens.
+- **Open Questions / outside the repo:**
+  - Pre-existing, not from this work: the overview page overflows horizontally by 19px at 390px width (the
+    bottom-nav "Settings" link).
+  - Production `jobs` has no `completed_at` index; the rollup relies on `jobs_session_idx` after autovacuum ANALYZE.
+
 # 2026-11-10 — merchant-web prod port moved 3010 → 3200 (local edit, not committed)
 
 - **Failed / Not Done:**
