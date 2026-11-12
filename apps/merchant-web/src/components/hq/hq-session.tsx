@@ -27,7 +27,7 @@ export function HqSession({ children }: { children: React.ReactNode }) {
       .catch(() => setFailed(true));
   }, []);
   useEffect(() => {
-    if (failed) window.location.href = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/hq/login`;
+    if (failed) window.location.href = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/login`;
   }, [failed]);
   if (!me) {
     return (

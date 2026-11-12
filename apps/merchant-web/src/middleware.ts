@@ -27,11 +27,11 @@ export function middleware(request: NextRequest) {
 
   // The team console has its own session cookie and never accepts the retailer one (spec §8).
   if (path === '/hq' || path.startsWith('/hq/')) {
-    const open = path === '/hq/login' || path.startsWith('/hq/api/auth');
+    const open = path.startsWith('/hq/api/auth');
     if (open || request.cookies.get('hq_refresh')?.value) {
       return withCsp(NextResponse.next({ request: { headers: requestHeaders } }));
     }
-    return withCsp(NextResponse.redirect(new URL(`${BASE_PATH}/hq/login`, request.url)));
+    return withCsp(NextResponse.redirect(new URL(`${BASE_PATH}/login`, request.url)));
   }
 
   if (PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`))) {

@@ -37,7 +37,7 @@ function Frame({ children }: { children: React.ReactNode }) {
           type="button"
           onClick={async () => {
             await hqSignOut();
-            window.location.href = `${BASE}/hq/login`;
+            window.location.href = `${BASE}/login`;
           }}
           style={{
             background: 'transparent',

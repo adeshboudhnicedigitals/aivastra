@@ -6,7 +6,7 @@
     (migration **0270**, SUPER_ADMIN + ADMIN) gates `GET /admin/accounts` (health list). Owner invite: creating a
     merchant emails a 72h single-use set-password link (Redis `email:invite:{token}`, `email:invite:user:{id}`);
     `GET /admin/merchants/:id/invite` and `POST .../invite/resend`; `POST /v1/auth/accept-invite`.
-  - Merchant Web: `/set-password` (+ `/api/auth/accept-invite` BFF); `/hq/login` as an explicit separate mode, own BFF
+  - Merchant Web: `/set-password` (+ `/api/auth/accept-invite` BFF); `/login` as an explicit separate mode, own BFF
     under `/hq/api/auth/*`, own cookie `hq_refresh` (path `/hq`, 24h) and own in-memory token (`lib/hq-api.ts`);
     middleware gates `/hq/*` on that cookie only; `/hq/accounts` list and `/hq/accounts/[id]` (owner, invite status +
     resend, credits + grant, branches, tablets).

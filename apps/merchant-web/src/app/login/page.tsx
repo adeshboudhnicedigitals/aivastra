@@ -9,6 +9,7 @@ import { GoogleBtn } from '@/components/ui/google-btn';
 import { useToast } from '@/components/ui/toast';
 import { initToken } from '@/lib/api';
 import { errorBodyMessage } from '@/lib/errors';
+import { initHqToken } from '@/lib/hq-api';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -114,13 +115,22 @@ function LoginFormInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      const body = (await res.json().catch(() => null)) as { accessToken?: string } | null;
+      const body = (await res.json().catch(() => null)) as {
+        accessToken?: string;
+        kind?: 'console' | 'merchant';
+      } | null;
       if (!res.ok || !body?.accessToken) {
         toast.show(errorBodyMessage(body) ?? 'Unable to sign in. Try again.');
         return;
       }
-      initToken(body.accessToken);
-      router.push('/');
+      // The credentials decided which session this is; each keeps its own in-memory token.
+      if (body.kind === 'console') {
+        initHqToken(body.accessToken);
+        router.push('/hq/accounts');
+      } else {
+        initToken(body.accessToken);
+        router.push('/');
+      }
     } catch {
       toast.show('Unable to reach the server. Check your connection and try again.');
     } finally {

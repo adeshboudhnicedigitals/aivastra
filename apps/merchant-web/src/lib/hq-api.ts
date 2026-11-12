@@ -50,7 +50,7 @@ export async function hqFetch<T>(path: string, init: RequestInit = {}): Promise<
   if (res.status === 401) {
     token = await refresh();
     if (!token) {
-      if (typeof window !== 'undefined') window.location.href = `${BASE}/hq/login`;
+      if (typeof window !== 'undefined') window.location.href = `${BASE}/login`;
       throw new ApiError(401, {
         error: { code: 'SESSION_EXPIRED', message: 'Your session has expired. Sign in again.' },
       });
