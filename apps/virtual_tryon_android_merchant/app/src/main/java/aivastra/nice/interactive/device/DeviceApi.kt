@@ -50,6 +50,14 @@ data class SessionItemResponse(
 
 data class EventsBatchRequest(@SerializedName("events") val events: List<QueuedEvent>)
 
+data class IdentifyStartResponse(
+    @SerializedName("code") val code: String,
+    @SerializedName("waLink") val waLink: String,
+    @SerializedName("expiresAt") val expiresAt: String,
+)
+
+data class IdentifyStatusResponse(@SerializedName("status") val status: String)
+
 data class StaffLoginRequest(
     @SerializedName("email") val email: String,
     @SerializedName("password") val password: String,
@@ -84,6 +92,13 @@ interface DeviceApi {
 
     @POST("v1/device/events")
     suspend fun uploadEvents(@Body body: EventsBatchRequest): Response<Unit>
+
+    /** CRM phase 2: a code + wa.me link to the brand's number; 409 = WhatsApp not set up (QR only). */
+    @POST("v1/device/sessions/{id}/identify")
+    suspend fun identifyStart(@Path("id") sessionId: String): Response<IdentifyStartResponse>
+
+    @GET("v1/device/sessions/{id}/identify")
+    suspend fun identifyStatus(@Path("id") sessionId: String): Response<IdentifyStatusResponse>
 
     /** Merchant-web's login, used for a staff member signing in on the tablet (plan M3). */
     @POST("v1/auth/login")

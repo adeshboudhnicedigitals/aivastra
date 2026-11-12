@@ -46,6 +46,9 @@ object EventReporter {
 
     fun qrShown(purpose: String) = record("qr_shown", props = mapOf("purpose" to purpose))
 
+    /** The WhatsApp identify QR was put in front of the shopper (consent-funnel top, spec §7). */
+    fun identifyShown() = record("identify_shown", props = mapOf("mode" to "A"))
+
     /** No client event: the server writes session_started. Here only to flush the queue early. */
     internal fun sessionStarted() = flushSoon()
 

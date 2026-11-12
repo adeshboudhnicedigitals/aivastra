@@ -481,6 +481,12 @@ client_event_id)`), `analytics_buckets` (15-minute UTC rollups; try-on outcomes
 are *derived* from `jobs` here, never emitted by the dispatcher),
 `analytics_rollup_state` (the rollup watermark). Advisory only — see Invariants.
 
+**In-store CRM** — `merchant_whatsapp_channels` (the brand's own WhatsApp number, mode A:
+token and app secret sealed under `CRM_DATA_KEY`), `merchant_crm_settings` (retention has no
+default; identification stays off until both periods are chosen), `shoppers` (per merchant:
+encrypted phone + keyed lookup hash, wiped by retention), `shopper_consents` (append-only,
+versioned), `instore_sessions.shopper_id`.
+
 **Shopify** — `shopify_stores` (encrypted tokens, auto-refill subscription state),
 `shopify_store_credits` + `shopify_credit_ledger` (stores bill themselves; not
 the linked user), `shopify_shoppers`, `shopify_catalog_jobs`,
@@ -542,6 +548,8 @@ test can drive one pass directly.
 | `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
 | `startWhatsappInboundConsumer` | continuous | `messaging:inbound` stream → `processInbound` (per-sender chains, 20 in flight) |
 | `startWhatsappDelivery` | 5s | sends finished runs; the paid template goes out once when the window is closed |
+| `startCrmInboundConsumer` | continuous | `crm:inbound` stream → shopper messages to a brand's own WhatsApp number (`LOOKS <code>`, consent, looks, STOP). Own Redis connection for `XREADGROUP BLOCK`. Only when `CRM_IDENTIFY_ENABLED` and `CRM_DATA_KEY` |
+| `startCrmRetention` | 1h | wipes shopper profiles past the merchant's chosen retention (phone, name, session links; consent history kept). Runs whenever `CRM_DATA_KEY` is set, flag or not |
 | `startAnalyticsRollup` | 60s | rebuilds the `analytics_buckets` touched since its watermark (60s commit-skew lag); hourly it also rebuilds the trailing 48h, which is what corrects a retried job and a late commit. Advisory lock, so replicas never double-count |
 
 The dispatcher runs its own, separately: the stuck-job sweeper and the
@@ -626,6 +634,12 @@ hangs on streaming responses.
   never the body, and may only use the `ANALYTICS_CLIENT_EVENTS` allowlist
   (`packages/types/src/analytics-events.ts`); server event names from a client are
   a 400. Rollups delete and rebuild a bucket, never increment one.
+- CRM data is the merchant's (Data Fiduciary; AiVastra is the processor). A shopper is unique on
+  `(merchant_id, phone_hash)` and is never joined across merchants. Phone numbers exist only
+  encrypted; channel tokens and app secrets are never returned by an API or written to
+  `audit_logs`. The shared WhatsApp webhook routes a body for a connected merchant number to
+  `crm:inbound` (verified with that merchant's app secret) **before** the seller lane; nothing
+  from a merchant number may reach the seller conversation engine.
 - No schema or data changes against production. See "Production safety" above.
 
 ---
@@ -644,6 +658,7 @@ hangs on streaming responses.
 | `WORKER_API_KEY` | dispatcher |
 | `PIXVERSE_*`, `VIDEO_CONCURRENCY` | dispatcher (catalog video lane) |
 | `SHOPIFY_API_KEY` / `_SECRET` / `_APP_URL` / `_SCOPES` / `_TOKEN_ENC_KEY` | api |
+| `CRM_DATA_KEY`, `CRM_IDENTIFY_ENABLED` | api — CRM shopper identification (32-byte key; flag accepts only `'true'`) |
 | `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | api — lifts the `TEST_GRANT_LIMIT` bound on credits granted for Shopify *test* charges (development stores grant up to that bound regardless). Accepts only the literal `'true'` (deliberately not `z.coerce.boolean()`, which turns `'false'` into `true`). Off in production |
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_BASE_PATH` | catalogues-web (build time) |
 | `VITE_API_BASE_URL`, `VITE_SHOPIFY_API_KEY`, `VITE_CHATBOT_URL` | SPAs (build time) |

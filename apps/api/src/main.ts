@@ -10,6 +10,7 @@ import { startComparisonRetention } from './modules/comparison/retention.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
 import { startCrmInboundConsumer } from './modules/crm/consumer.js';
+import { startCrmRetention } from './modules/crm/retention.js';
 import { startInstoreSessionSweeper } from './modules/device/session-sweeper.js';
 import { startFleetEvaluator } from './modules/fleet/evaluator.js';
 import { startFleetRetention } from './modules/fleet/retention.js';
@@ -91,6 +92,9 @@ if (app.env.MESSAGING_WHATSAPP_ENABLED === true) {
 if (app.env.CRM_IDENTIFY_ENABLED === true && app.env.CRM_DATA_KEY) {
   startCrmInboundConsumer(app);
 }
+// Profile retention runs whenever the key exists, flag or not: data captured while the feature
+// was on must still expire after it is switched off.
+if (app.env.CRM_DATA_KEY) startCrmRetention(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db

@@ -65,6 +65,7 @@ import aivastra.nice.interactive.ui.screens.PendingActivationPage
 import aivastra.nice.interactive.ui.screens.PairingPage
 import aivastra.nice.interactive.ui.components.StaffSignInDialog
 import aivastra.nice.interactive.ui.components.SessionItemBar
+import aivastra.nice.interactive.ui.components.WhatsappLooksButton
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import aivastra.nice.interactive.device.DeviceStore
@@ -1132,6 +1133,14 @@ fun AppNavGraph(
                     }
                 }
             )
+            // Mode A: the brand's own WhatsApp, drawn over the page, beside the download QR (CRM phase 2).
+            Box(modifier = Modifier.fillMaxSize()) {
+                WhatsappLooksButton(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 96.dp, end = 16.dp)
+                )
+            }
         }
     }
         Box(

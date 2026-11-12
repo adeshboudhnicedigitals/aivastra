@@ -1,3 +1,31 @@
+# 2026-11-12 — CRM phase 2: shopper identification on the merchant's own WhatsApp (local, committed, not pushed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-crm-identification-mode-a.md` Tasks 1–7 and the profile half of Task 6.
+  - Migration **`0265_crm_shopper_identification`** (additive: 4 new tables, nullable `instore_sessions.shopper_id`
+    + FK + partial index; production `instore_sessions` had 0 rows on 2026-11-12). Applied to local `tryon_dev` only.
+  - API: merchant admin connects the brand's WhatsApp number (checked against Graph before saving; token and app
+    secret sealed, never returned or audited) and sets retention + when to ask; device `identify` start/status; the
+    shared webhook routes a merchant number's traffic to `crm:inbound` before the seller lane; consumer handles
+    `LOOKS <code>` → shopper + session link → two consent buttons → looks as images; `SEND`, `STOP`. Profile retention
+    sweeper (hourly). New env `CRM_DATA_KEY`, `CRM_IDENTIFY_ENABLED` (in `.env.production.example`, unset/false).
+  - Tablet test app: "Get looks on WhatsApp" pill on the Download screen (QR + live status; 409 → points to the
+    download QR); `identify_shown` event. Merchant-web Settings: WhatsApp connection form and Customer data card.
+  - Verified: `crm-settings` 8, `crm-identify` 12 (real webhook → stream → consumer, Graph stubbed), `crm-retention` 3;
+    seller-lane `messaging- whatsapp- admin-whatsapp` + `device- analytics-` 32 files / 223 tests; api unit 122 / 1,235;
+    merchant-web 112 tests, typecheck, lint; Android `assembleDebug` + unit tests; `biome check .` no errors.
+- **Failed / Not Done:**
+  - **Photo retention not built** (Task 6 second half): which photos it covers is an open product question (below).
+    `photo_retention_days` is stored and required, but nothing deletes photos yet.
+  - Never run against a real WhatsApp number: no merchant WABA exists for testing, and Meta needs a public webhook URL.
+  - Merchant-web settings and the tablet pill were not opened in a browser/device.
+- **Open Questions / outside the repo:**
+  - Photo retention scope: only identified shoppers' sessions, or every in-store session photo? Deleting results also
+    empties the merchant's try-on history for those jobs.
+  - Consent wording ships as `v0-draft` and needs legal review with the DPA (spec Q6) before `CRM_IDENTIFY_ENABLED=true`.
+  - Per merchant, outside the repo: their Meta app's webhook must point at `/v1/whatsapp/webhook` with our verify token,
+    and subscribe to `messages`. Production needs `CRM_DATA_KEY` provisioned before any merchant connects.
+
 # 2026-11-12 — Merchant Android test app on the device model + mode-A decisions (local, committed, not pushed)
 
 - **Done:**

@@ -49,9 +49,11 @@ test app.
 
 ### Task 6: Retention
 - [ ] Hourly sweeper: shoppers past `profile_retention_days` since last visit → profile deleted (phone wiped, consents kept anonymised), session link nulled. Photo retention applied to identified sessions' customer photos and results. Dry-run count logged before delete.
+  *(Profile half done 2026-11-12: `crm/retention.ts`, `crm-retention` 3 tests. **Photo half not built**: scope is an open product question, see `docs/progress.md`.)*
 
 ### Task 7: Tablet + merchant-web
-- [ ] Tablet: on session end, "Get these looks on WhatsApp" QR (polls status), QR download always offered; `identify_shown`.
-- [ ] Merchant-web Settings: WhatsApp connection form and CRM settings (retention required before identification switches on).
+- [x] Tablet: on session end, "Get these looks on WhatsApp" QR (polls status), QR download always offered; `identify_shown`.
+- [x] Merchant-web Settings: WhatsApp connection form and CRM settings (retention required before identification switches on). *(Done 2026-11-12: `WhatsappLooksButton` on the tablet Download screen; `CustomerDataSettings` on merchant-web Settings with `lib/crm-form.ts` (5 tests). Not opened in a browser or on a device.)*
 
 ### Task 8: Records and verification
+- [x] *(2026-11-12: CLAUDE.md loops/schema/invariants/env, `.env.production.example`, `docs/progress.md`.)*
