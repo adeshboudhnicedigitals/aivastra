@@ -24,6 +24,7 @@ import {
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
 import { isShopifyPreviewOrigin } from './lib/shopify-origin.js';
+import { adminAccountsRoutes } from './modules/admin/accounts.routes.js';
 import { adminAuditRoutes } from './modules/admin/audit.routes.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminBlouseCategoriesRoutes } from './modules/admin/blouse-categories.routes.js';
@@ -72,6 +73,7 @@ import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowChangeRequestsRoutes } from './modules/admin/workflow-change-requests.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
+import { inviteRoutes } from './modules/auth/invite.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { backgroundsRoutes } from './modules/backgrounds/routes.js';
 import { cartRoutes } from './modules/cart/routes.js';
@@ -566,6 +568,8 @@ export async function buildServer(env: Env) {
   await app.register(adminSareeRoutes);
   await app.register(adminContactRoutes);
   await app.register(adminMerchantsRoutes);
+  await app.register(adminAccountsRoutes);
+  await app.register(inviteRoutes);
   await app.register(adminMerchantOrgRoutes);
   await app.register(adminMerchantDeviceRoutes);
   await app.register(resultsRoutes);

@@ -6,6 +6,7 @@ import { count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { inviteStatus, sendInvite } from '../auth/invite.js';
 import { assignMerchantToActiveDemoSets } from '../merchant/demo-catalog-read.js';
 import { merchantAdminGrant } from '../merchant/ledger.js';
 import { assertUserIsNotStaff } from '../merchant/staff-guard.js';
@@ -178,8 +179,11 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const body = req.body as z.infer<typeof AdminCreateClient>;
 
+      // Set only when this call created the user: an existing account keeps its own password.
+      let invitee: typeof schema.users.$inferSelect | null = null;
       const client = await app.db.transaction(async (tx) => {
         let user: typeof schema.users.$inferSelect;
+        let createdUser = false;
         if (body.userId) {
           const [existing] = await tx
             .select()
@@ -189,7 +193,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           if (!existing) throw new AppError('NOT_FOUND', 404, 'User not found');
           user = existing;
         } else {
-          ({ user } = await findOrCreateUserForMerchant(tx, {
+          ({ user, created: createdUser } = await findOrCreateUserForMerchant(tx, {
             // biome-ignore lint/style/noNonNullAssertion: schema refine guarantees email when userId is absent
             email: body.email!,
             password: crypto.randomUUID(),
@@ -234,6 +238,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           request: req,
         });
 
+        if (createdUser) invitee = user;
         return created;
       });
 
@@ -250,7 +255,12 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
         );
       }
 
-      return reply.code(201).send({ id: client.id });
+      // The user was created with a random password nobody knows; the invite is the only way in.
+      const invite = invitee
+        ? await sendInvite(app, invitee, client.companyName)
+        : ('none' as const);
+
+      return reply.code(201).send({ id: client.id, invite });
     },
   );
 
@@ -476,6 +486,62 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       });
 
       return { newBalance };
+    },
+  );
+
+  app.get(
+    '/admin/merchants/:id/invite',
+    { preHandler: requirePermission('merchants.read') },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [m] = await app.db
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, id));
+      if (!m) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+      return { status: await inviteStatus(app, m.userId) };
+    },
+  );
+
+  app.post(
+    '/admin/merchants/:id/invite/resend',
+    {
+      preHandler: requirePermission('merchants.write'),
+      config: { rateLimit: { max: 10, timeWindow: '1 hour' } },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [row] = await app.db
+        .select({
+          userId: schema.merchants.userId,
+          companyName: schema.merchants.companyName,
+          email: schema.users.email,
+          displayName: schema.users.displayName,
+        })
+        .from(schema.merchants)
+        .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
+        .where(eq(schema.merchants.id, id));
+      if (!row) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+      if ((await inviteStatus(app, row.userId)) === 'accepted') {
+        throw new AppError('CONFLICT', 409, 'This account has already set a password');
+      }
+      if (!row.email) throw new AppError('CONFLICT', 409, 'This account has no email address');
+      const result = await sendInvite(
+        app,
+        { id: row.userId, email: row.email, displayName: row.displayName },
+        row.companyName,
+      );
+      await app.db.transaction(async (tx) => {
+        await recordAudit(tx, {
+          actor: { userId: req.userId, role: req.adminRole! },
+          action: 'merchant.invite_resend',
+          resourceType: 'merchant',
+          resourceId: id,
+          after: { result },
+          request: req,
+        });
+      });
+      return { invite: result };
     },
   );
 }

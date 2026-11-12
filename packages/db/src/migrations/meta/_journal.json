@@ -1884,6 +1884,13 @@
       "when": 1794487179514,
       "tag": "0269_credits_grant_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 270,
+      "version": "7",
+      "when": 1794487979568,
+      "tag": "0270_accounts_read_permission",
+      "breakpoints": true
     }
   ]
 }

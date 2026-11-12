@@ -1,3 +1,4 @@
+export * from './accounts.js';
 export * from './admin.js';
 export * from './analytics-events.js';
 export * from './auth.js';
