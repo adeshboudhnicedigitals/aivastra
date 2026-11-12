@@ -4,6 +4,7 @@ import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { getActiveUnlimitedPlan } from '../credits/unlimited-plan.js';
 import { chargeInStoreTryon } from '../device/entitlement.js';
 import { atomicMerchantDeduct } from './ledger.js';
 
@@ -20,6 +21,13 @@ function attributionColumns(a?: JobAttribution) {
   return a
     ? { branchId: a.branchId, deviceId: a.deviceId, sessionId: a.sessionId, staffId: a.staffId }
     : {};
+}
+
+// An active monthly plan promotes the merchant's try-ons to its queue stream
+// (priority); everyone else, including a lapsed plan, stays on normal.
+async function resolveTryonStream(app: FastifyInstance, userId: string): Promise<string> {
+  const plan = await getActiveUnlimitedPlan(app.db, userId);
+  return plan?.queueStream ?? 'normal';
 }
 
 // Legacy callers keep the exact original deduct; only attributed (device) jobs go through
@@ -68,6 +76,7 @@ export async function createMerchantTryonJob(
 ): Promise<string> {
   const jobId = randomUUID();
   const cost = await getTryonCreditCost(app);
+  const queueStream = await resolveTryonStream(app, input.merchantUserId);
 
   await app.db.transaction(async (tx) => {
     // biome-ignore lint/suspicious/noExplicitAny: nullable widget inputs are wider than Drizzle's inferred insert type.
@@ -76,6 +85,7 @@ export async function createMerchantTryonJob(
       userId: input.merchantUserId,
       merchantId: input.merchantId,
       customerPhotoKey: input.customerPhotoKey,
+      queueStream,
       status: 'QUEUED',
       creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_TRYON,
@@ -101,7 +111,7 @@ export async function createMerchantTryonJob(
   });
 
   await app.redis.xadd(
-    'jobs:normal',
+    `jobs:${queueStream}`,
     'MAXLEN',
     '~',
     10000,
@@ -155,6 +165,7 @@ export async function createMerchantTryonJobTwoStep(
   const mannequinJobId = randomUUID();
   const jobId = randomUUID();
   const cost = await getTryonCreditCost(app);
+  const queueStream = await resolveTryonStream(app, input.merchantUserId);
 
   await app.db.transaction(async (tx) => {
     await tx.insert(schema.jobs).values({
@@ -162,7 +173,7 @@ export async function createMerchantTryonJobTwoStep(
       userId: input.merchantUserId,
       status: 'QUEUED',
       watermark: false,
-      queueStream: 'normal',
+      queueStream,
       creditsCharged: 0,
       source: JOB_SOURCE.SAREE_MANNEQUIN,
     });
@@ -185,6 +196,7 @@ export async function createMerchantTryonJobTwoStep(
       userId: input.merchantUserId,
       merchantId: input.merchantId,
       customerPhotoKey: input.customerPhotoKey,
+      queueStream,
       status: 'PENDING_MANNEQUIN',
       creditsCharged: cost,
       source: JOB_SOURCE.MERCHANT_TRYON,
@@ -210,7 +222,7 @@ export async function createMerchantTryonJobTwoStep(
   });
 
   await app.redis.xadd(
-    'jobs:normal',
+    `jobs:${queueStream}`,
     'MAXLEN',
     '~',
     10000,
