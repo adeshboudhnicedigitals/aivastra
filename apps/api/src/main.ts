@@ -9,6 +9,7 @@ import { startComparisonDispatcher } from './modules/comparison/dispatcher-tick.
 import { startComparisonRetention } from './modules/comparison/retention.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
+import { startCrmInboundConsumer } from './modules/crm/consumer.js';
 import { startInstoreSessionSweeper } from './modules/device/session-sweeper.js';
 import { startFleetEvaluator } from './modules/fleet/evaluator.js';
 import { startFleetRetention } from './modules/fleet/retention.js';
@@ -83,6 +84,12 @@ if (app.env.MESSAGING_WHATSAPP_ENABLED === true) {
       'MESSAGING_WHATSAPP_ENABLED is on but WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN are missing — bot not started',
     );
   }
+}
+
+// CRM phase 2: shoppers writing to a brand's own WhatsApp number (mode A). Off unless
+// CRM_IDENTIFY_ENABLED is the literal 'true' and the data key is set.
+if (app.env.CRM_IDENTIFY_ENABLED === true && app.env.CRM_DATA_KEY) {
+  startCrmInboundConsumer(app);
 }
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {

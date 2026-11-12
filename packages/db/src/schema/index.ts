@@ -8,6 +8,7 @@ export * from './chatbot.js';
 export * from './classify-service.js';
 export * from './contact.js';
 export * from './credits.js';
+export * from './crm.js';
 export * from './demo-catalog.js';
 export * from './dev-api.js';
 export * from './dispatcher-execution.js';

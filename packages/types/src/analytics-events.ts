@@ -16,6 +16,10 @@ export const ANALYTICS_SERVER_EVENTS = [
   'item_wishlisted',
   'sale_recorded',
   'sale_voided',
+  // CRM phase 2: a shopper sent LOOKS <code> from their phone; their consent answer; looks sent.
+  'shopper_identified',
+  'consent_recorded',
+  'looks_sent',
 ] as const;
 export type AnalyticsServerEvent = (typeof ANALYTICS_SERVER_EVENTS)[number];
 

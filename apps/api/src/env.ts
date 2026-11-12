@@ -100,6 +100,12 @@ const Env = z.object({
   // export is enabled. Same encryptToken/decryptToken helper as the line
   // above, different key — see lib/crypto.ts.
   GOOGLE_DRIVE_TOKEN_ENC_KEY: z.string().optional(),
+  // CRM phase 2: 32 bytes (base64). HKDF subkeys seal merchant WhatsApp channel secrets,
+  // encrypt shopper phone numbers and key their lookup hash (modules/crm/crypto.ts). Rotating it
+  // makes every stored number and channel unreadable, like SHOPIFY_TOKEN_ENC_KEY.
+  CRM_DATA_KEY: z.string().optional(),
+  // Shopper identification on the merchant's WhatsApp. Only the literal 'true' turns it on.
+  CRM_IDENTIFY_ENABLED: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   // Grant credits for Shopify *test* one-time charges (AppPurchaseOneTime.test),
   // which is what every development store produces — Shopify never bills them.
   // Off unless the value is exactly 'true', so production grants only against

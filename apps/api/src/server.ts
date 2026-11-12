@@ -79,6 +79,8 @@ import { renewalPromptRoutes } from './modules/credits/renewal-prompt.routes.js'
 import { creditsRoutes } from './modules/credits/routes.js';
 import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-login-check.routes.js';
 import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
+import { deviceIdentifyRoutes } from './modules/crm/identify.js';
+import { crmSettingsRoutes } from './modules/crm/settings.routes.js';
 import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
@@ -189,6 +191,8 @@ export async function buildServer(env: Env) {
   app.setSerializerCompiler(serializerCompiler);
 
   app.decorate('env', env);
+  // Graph API calls with merchant WhatsApp credentials (modules/crm/channel.ts); tests stub it.
+  app.decorate('crmFetch', ((...args: Parameters<typeof fetch>) => fetch(...args)) as typeof fetch);
 
   // MinIO (R2_*) plus, when configured, the real R2 bucket for user objects
   // (USER_STORAGE_*) — presigned URLs for either can reach a browser.
@@ -483,6 +487,8 @@ export async function buildServer(env: Env) {
   await app.register(deviceRoutes);
   await app.register(deviceEventsRoutes);
   await app.register(deviceTabletRoutes);
+  await app.register(crmSettingsRoutes);
+  await app.register(deviceIdentifyRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);

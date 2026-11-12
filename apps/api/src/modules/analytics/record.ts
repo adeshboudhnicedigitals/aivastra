@@ -22,6 +22,8 @@ export interface ServerEvent {
   deviceId?: string | null;
   staffId?: string | null;
   sessionId?: string | null;
+  /** CRM phase 2: set once the shopper has identified (advisory, like every dimension). */
+  shopperId?: string | null;
   catalogItemId?: string | null;
   /** Session mode today (kiosk | assisted); other channels as they join. */
   channel?: string | null;
@@ -38,6 +40,7 @@ function row(e: ServerEvent) {
     deviceId: e.deviceId ?? null,
     staffId: e.staffId ?? null,
     sessionId: e.sessionId ?? null,
+    shopperId: e.shopperId ?? null,
     catalogItemId: e.catalogItemId ?? null,
     channel: e.channel ?? null,
     props: e.props ?? {},

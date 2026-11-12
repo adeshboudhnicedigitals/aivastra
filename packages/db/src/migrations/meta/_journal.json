@@ -1849,6 +1849,13 @@
       "when": 1794479441629,
       "tag": "0264_analytics_events_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 265,
+      "version": "7",
+      "when": 1794484550134,
+      "tag": "0265_crm_shopper_identification",
+      "breakpoints": true
     }
   ]
 }
