@@ -22,6 +22,7 @@ export * from './fleet-operations.js';
 export * from './garment-recognition.js';
 export * from './google-drive.js';
 export * from './image-compression.js';
+export * from './inventory.js';
 export * from './job-refunds.js';
 export * from './job-taxonomy.js';
 export * from './jobs.js';

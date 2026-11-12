@@ -102,6 +102,7 @@ import { fleetOperationsRoutes } from './modules/fleet/operations.routes.js';
 import { fleetOverviewRoutes } from './modules/fleet/overview.routes.js';
 import { fleetSettingsRoutes } from './modules/fleet/settings.routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
+import { inventoryRoutes } from './modules/inventory/routes.js';
 import { refundRequestsRoutes } from './modules/jobs/refund-requests.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { merchantAnalyticsRoutes } from './modules/merchant/analytics/routes.js';
@@ -489,6 +490,7 @@ export async function buildServer(env: Env) {
   await app.register(deviceTabletRoutes);
   await app.register(crmSettingsRoutes);
   await app.register(deviceIdentifyRoutes);
+  await app.register(inventoryRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);
