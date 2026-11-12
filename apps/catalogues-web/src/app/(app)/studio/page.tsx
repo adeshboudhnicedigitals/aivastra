@@ -11,6 +11,7 @@ import {
   XIcon,
   YoutubeIcon,
 } from '@/components/icons';
+import { type LowCreditKind, LowCreditModal } from '@/components/low-credit-modal';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
@@ -30,6 +31,9 @@ import { OptionalUploadBox } from './optional-upload-box';
 import { PreviewPanel } from './preview-panel';
 import { SelectGridModal } from './select-modal';
 import { GenderCard, SectionHead, SelCard, sectionCardStyle } from './shared-cards';
+
+/** Balance below which crossing downward shows the low-credit popup on the result screen. */
+const LOW_CREDIT_THRESHOLD = 30;
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -850,6 +854,23 @@ export default function StudioPage(): React.ReactElement {
   const isUnlimitedPlan =
     creditsData?.unlimitedPlan?.status === 'active' ||
     creditsData?.unlimitedPlan?.status === 'expiring_soon';
+
+  // Low-credit heads-up on the result screen. Detected when the balance crosses
+  // a threshold (not on every low balance, so it can't nag), held until the
+  // generation settles, then shown once.
+  const [pendingLowCredit, setPendingLowCredit] = useState<LowCreditKind | null>(null);
+  const prevBalanceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!creditsData) return;
+    const prev = prevBalanceRef.current;
+    const cur = creditsData.balance;
+    prevBalanceRef.current = cur;
+    if (prev === null || cur >= prev) return;
+    if (cur <= 0) setPendingLowCredit('exhausted');
+    else if (cur < LOW_CREDIT_THRESHOLD && prev >= LOW_CREDIT_THRESHOLD) {
+      setPendingLowCredit('low');
+    }
+  }, [creditsData]);
 
   const { data: bodyTypes } = useQuery<{ items: BodyType[] }>({
     queryKey: ['bodyTypes', gender],
@@ -6235,7 +6256,11 @@ export default function StudioPage(): React.ReactElement {
                 catalogueId={activeGeneration.catalogueId}
                 jobs={activeGeneration.jobs}
                 garmentPreviewUrl={garmentPreviewUrl}
-                onAllSettled={() => setGenerationInProgress(false)}
+                onAllSettled={() => {
+                  setGenerationInProgress(false);
+                  // Regenerates deduct credits without a page-level refresh.
+                  qc.invalidateQueries({ queryKey: ['credits'] });
+                }}
                 onCancel={() => {
                   setActiveGeneration(null);
                   setGenerationInProgress(false);
@@ -6247,6 +6272,12 @@ export default function StudioPage(): React.ReactElement {
           </div>
         </div>
       )}
+
+      <LowCreditModal
+        kind={activeGeneration && !generationInProgress ? pendingLowCredit : null}
+        balance={userCredits}
+        onClose={() => setPendingLowCredit(null)}
+      />
 
       {/* Garment Type Modal */}
       {garmentModalOpen && garmentTypes && (

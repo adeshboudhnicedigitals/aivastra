@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { deriveDisplayStatus, getActiveUnlimitedPlan } from '../credits/unlimited-plan.js';
+import { deriveDisplayStatus, getLatestUnlimitedPlan } from '../credits/unlimited-plan.js';
 
 export async function merchantMeRoutes(app: FastifyInstance) {
   app.get('/v1/merchant/me', { preHandler: app.requireMerchant }, async (req) => {
@@ -33,7 +33,9 @@ export async function merchantMeRoutes(app: FastifyInstance) {
       .where(eq(schema.merchants.id, merchantId));
 
     const { userId, ...rest } = row;
-    const unlimitedPlan = deriveDisplayStatus(await getActiveUnlimitedPlan(app.db, userId));
+    // Latest (active ranks first), not just active, so an ended plan reports 'expired' and
+    // the app can tell the merchant that try-ons now use credits.
+    const unlimitedPlan = deriveDisplayStatus(await getLatestUnlimitedPlan(app.db, userId));
 
     return { ...rest, used: usage?.used ?? 0, unlimitedPlan };
   });

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
@@ -78,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.data.repository.MerchantRepository
 import aivastra.nice.interactive.data.repository.MerchantResult
+import aivastra.nice.interactive.utils.CreditBalanceTracker
 import aivastra.nice.interactive.data.repository.UserRepository
 import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.ui.components.AppDialog
@@ -146,9 +148,21 @@ fun CategorySelectionPage(
     val userEmail = remember { SessionManager.userEmail ?: "user@aivastra.com" }
 
     var creditsBalance by remember { mutableStateOf(0) }
+    // endAt of a monthly plan that has ended and not yet been acknowledged on this device.
+    var endedPlanAt by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         when (val result = MerchantRepository().getMe()) {
-            is MerchantResult.Success -> creditsBalance = result.data.balance
+            is MerchantResult.Success -> {
+                creditsBalance = result.data.balance
+                // Baseline for the result screen's low-credit check.
+                CreditBalanceTracker.record(result.data.balance)
+                val plan = result.data.unlimitedPlan
+                if (plan?.status == "expired" && plan.endAt != null &&
+                    !SessionManager.hasAcknowledgedPlanEnd(plan.endAt)
+                ) {
+                    endedPlanAt = plan.endAt
+                }
+            }
             is MerchantResult.Failure -> Unit // Keep the pill at 0 rather than surfacing an error over the whole screen for this ancillary widget.
         }
     }
@@ -469,6 +483,24 @@ fun CategorySelectionPage(
             }
 
             // ── Logout dialog ───────────────────────────────────────────────
+            endedPlanAt?.let { endAt ->
+                AppDialog(
+                    title = "Your monthly plan has ended",
+                    message = "New try-ons will now use credits from your account balance, like your other services. Contact us if you'd like to renew the plan.",
+                    icon = Icons.Default.Info,
+                    confirmText = "Got it",
+                    cancelText = null,
+                    onConfirm = {
+                        SessionManager.acknowledgePlanEnd(endAt)
+                        endedPlanAt = null
+                    },
+                    onDismiss = {
+                        SessionManager.acknowledgePlanEnd(endAt)
+                        endedPlanAt = null
+                    }
+                )
+            }
+
             if (showLogoutDialog) {
                 AppDialog(
                     title = "Confirm Logout",
