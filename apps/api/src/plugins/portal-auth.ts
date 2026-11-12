@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
-import { verifyAccess } from '../modules/auth/service.js';
+import { ADMIN_AUDIENCE, verifyAccess } from '../modules/auth/service.js';
 import { sha256 } from '../modules/device/secrets.js';
 
 export const portalAuthPlugin = fp(async (app) => {
@@ -22,6 +22,10 @@ export const portalAuthPlugin = fp(async (app) => {
     try {
       const payload = await verifyAccess(secret, token);
       if ((payload as Record<string, unknown>).kind !== 'access') {
+        throw new AppError('UNAUTH', 401, 'invalid token');
+      }
+      // Console (audience 'admin') tokens belong to /admin/*; see requireUser.
+      if ((payload as Record<string, unknown>).aud === ADMIN_AUDIENCE) {
         throw new AppError('UNAUTH', 401, 'invalid token');
       }
       return String(payload.sub);

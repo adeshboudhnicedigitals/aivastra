@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
-import { verifyAccess, verifyAdminAccess } from '../modules/auth/service.js';
+import { ADMIN_AUDIENCE, verifyAccess, verifyAdminAccess } from '../modules/auth/service.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -36,6 +36,10 @@ export const authPlugin = fp(async (app) => {
       // This is the actual security boundary for the installable Try On Library.
       if ((payload as Record<string, unknown>).aud === 'catalog-app')
         throw new AppError('UNAUTH', 401, 'invalid token');
+      // AiVastra console tokens (audience 'admin') are for /admin/* only. merchant-web will
+      // hold one in the same browser as a retailer session, so it must never act as a user.
+      if ((payload as Record<string, unknown>).aud === ADMIN_AUDIENCE)
+        throw new AppError('UNAUTH', 401, 'invalid token');
       userId = String(payload.sub);
     } catch (err) {
       if (err instanceof AppError) throw err;
@@ -61,6 +65,8 @@ export const authPlugin = fp(async (app) => {
     try {
       const payload = await verifyAccess(secret, token);
       if ((payload as Record<string, unknown>).kind !== 'access')
+        throw new AppError('UNAUTH', 401, 'invalid token');
+      if ((payload as Record<string, unknown>).aud === ADMIN_AUDIENCE)
         throw new AppError('UNAUTH', 401, 'invalid token');
       userId = String(payload.sub);
     } catch (err) {

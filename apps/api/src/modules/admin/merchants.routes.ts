@@ -445,7 +445,8 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/merchants/:id/credits',
     {
-      preHandler: requirePermission('merchants.write'),
+      // credits.grant, not merchants.write: editing a merchant must not also mint money for it.
+      preHandler: requirePermission('credits.grant'),
       schema: { body: AdminCreditBody },
     },
     async (req) => {

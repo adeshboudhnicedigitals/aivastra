@@ -642,6 +642,7 @@ describe('google-drive integration', () => {
       const { token: adminToken, userId: adminId } = await createVerifiedUserToken(
         app,
         'superadmin-gdrive@example.com',
+        { audience: 'admin' },
       );
       await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPER_ADMIN' });
 

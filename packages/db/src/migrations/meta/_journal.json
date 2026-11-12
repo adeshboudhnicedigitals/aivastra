@@ -1877,6 +1877,13 @@
       "when": 1794486555734,
       "tag": "0268_customer_segments",
       "breakpoints": true
+    },
+    {
+      "idx": 269,
+      "version": "7",
+      "when": 1794487179514,
+      "tag": "0269_credits_grant_permission",
+      "breakpoints": true
     }
   ]
 }
