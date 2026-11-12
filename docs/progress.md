@@ -1,3 +1,27 @@
+# 2026-11-12 — Account console phase 4: TOTP two-factor for admins, option B (local, not pushed)
+
+- **Decision:** option B. Roles holding `accounts.read` or `credits.grant` must use TOTP once `ADMIN_MFA_ENFORCE=true`; anyone who
+  has enrolled is challenged regardless of the flag. Applies to `/admin/auth/login`, so admin-web and the console share it.
+- **Done:**
+  - Migration **`0271_admin_totp`** (additive: `admin_users.totp_secret_enc`, `totp_enabled_at`, `totp_last_step`,
+    `totp_recovery_hashes`; applied to local `tryon_dev` only).
+  - API `modules/admin/totp.ts` (RFC 6238, no dependency), `mfa.ts`, `mfa.routes.ts`: login returns `{mfaRequired, mfaToken}` with
+    no cookie or access token; `POST /admin/auth/mfa/verify` (code or one-time recovery code), `/mfa/enroll/start|confirm`
+    (secret held sealed in Redis until a code proves it; 8 recovery codes shown once, stored hashed), `POST
+    /admin/users/:id/mfa/reset` (SUPER_ADMIN, audited, revokes that admin's sessions). Step token is `aud admin-mfa`,
+    `kind mfa`: no route accepts it as an access token. Replay guarded by `totp_last_step`; 5 wrong codes lock for 15 min.
+    Audited: `admin.mfa.enroll`, `admin.mfa.recovery_used`, `admin.mfa.reset`.
+  - merchant-web: one `/login` page shows the code / setup / recovery-code step (`/api/auth/mfa` BFF). admin-web: same step
+    on its login page (`MfaStep`).
+  - Verified: 6 TOTP unit tests (RFC 6238 vectors) + 6 integration tests; merchant-web 132 tests + typecheck; admin-web typecheck + build.
+- **Failed / Not Done:**
+  - No browser check of either login. No QR code (the key is shown for manual entry or an `otpauth://` link).
+  - No admin-web button for the SUPER_ADMIN reset (API only). `apps/admin-mobile` (paused) cannot complete an MFA login.
+  - Enrolled admins who are not gated (e.g. SUPPORT who enrolled) signing in through merchant-web get "no console access" after the code.
+- **Open Questions / outside the repo (before enabling in production):**
+  - Provision `ADMIN_MFA_KEY` (32 bytes base64) in `.env.production` and back it up: losing it locks every enrolled admin out.
+  - Ship migration 0271 via CI, announce, enrol SUPER_ADMINs first, then set `ADMIN_MFA_ENFORCE=true`.
+
 # 2026-11-12 — Account console phase 3 (read side): Shopify stores under an account (local, not pushed)
 
 - **Done:** `GET /admin/accounts/:id/shopify-stores` (guard `accounts.read`; identity + credits + try-on count, no tokens or shop contact),

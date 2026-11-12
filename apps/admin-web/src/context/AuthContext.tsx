@@ -14,9 +14,14 @@ interface AuthState {
   // permission-driven default".
   isNavVisible: (navKey: string) => boolean | undefined;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** Resolves to a challenge when a second factor is owed (no session exists yet), else null. */
+  login: (email: string, password: string) => Promise<MfaChallenge | null>;
+  /** Completes sign-in with the access token a passed second factor returned. */
+  finishLogin: (accessToken: string) => Promise<void>;
   logout: () => Promise<void>;
 }
+
+export type MfaChallenge = { step: 'verify' | 'enroll'; mfaToken: string };
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -87,12 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, [fetchRole]);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const { accessToken } = await apiFetch<{ accessToken: string }>('/admin/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
+  const finishLogin = useCallback(
+    async (accessToken: string) => {
       setToken(accessToken);
       try {
         await fetchRole();
@@ -104,6 +105,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     [fetchRole],
+  );
+
+  const login = useCallback(
+    async (email: string, password: string): Promise<MfaChallenge | null> => {
+      const res = await apiFetch<{
+        accessToken?: string;
+        mfaRequired?: 'verify' | 'enroll';
+        mfaToken?: string;
+      }>('/admin/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      // Password was right but a second factor is owed: no token or cookie exists yet.
+      if (res.mfaRequired && res.mfaToken) return { step: res.mfaRequired, mfaToken: res.mfaToken };
+      await finishLogin(res.accessToken as string);
+      return null;
+    },
+    [finishLogin],
   );
 
   const logout = useCallback(async () => {
@@ -132,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isNavVisible,
         isLoading,
         login,
+        finishLogin,
         logout,
       }}
     >

@@ -53,6 +53,7 @@ import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.rou
 import { adminMerchantDeviceRoutes } from './modules/admin/merchant-devices.routes.js';
 import { adminMerchantOrgRoutes } from './modules/admin/merchant-org.routes.js';
 import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
+import { adminMfaRoutes } from './modules/admin/mfa.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminPaymentsRoutes } from './modules/admin/payments.routes.js';
 import { adminProdSnapshotRoutes } from './modules/admin/prod-snapshot.routes.js';
@@ -570,6 +571,7 @@ export async function buildServer(env: Env) {
   await app.register(adminContactRoutes);
   await app.register(adminMerchantsRoutes);
   await app.register(adminAccountsRoutes);
+  await app.register(adminMfaRoutes);
   await app.register(adminAccountAnalyticsRoutes);
   await app.register(inviteRoutes);
   await app.register(adminMerchantOrgRoutes);

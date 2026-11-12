@@ -29,6 +29,16 @@ export async function POST(req: NextRequest) {
     }
     if (teamRes.ok) {
       const [data] = await safeJson(teamRes);
+      // Password right, second factor still owed: no cookie, no token until /api/auth/mfa passes.
+      const mfa = data as { mfaRequired?: 'verify' | 'enroll'; mfaToken?: string };
+      if (mfa.mfaRequired && mfa.mfaToken) {
+        return NextResponse.json({
+          ok: true,
+          kind: 'mfa',
+          step: mfa.mfaRequired,
+          mfaToken: mfa.mfaToken,
+        });
+      }
       const accessToken = (data as { accessToken?: string }).accessToken ?? '';
       const meRes = await fetch(`${API_URL}/admin/me`, {
         headers: { Authorization: `Bearer ${accessToken}`, ...forwardedIpHeaders(req) },

@@ -152,4 +152,20 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(429);
     expect(f).toHaveBeenCalledTimes(1);
   });
+
+  it('a team password with a second factor owed returns the step token and sets no cookie', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(json({ mfaRequired: 'verify', mfaToken: 'step-token' })),
+    );
+    const res = await POST(loginReq());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      kind: 'mfa',
+      step: 'verify',
+      mfaToken: 'step-token',
+    });
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
 });
