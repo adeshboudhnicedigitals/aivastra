@@ -31,7 +31,8 @@ export async function atomicMerchantDeduct(
   jobId: string,
 ) {
   const userId = await resolveMerchantUserId(db, merchantId);
-  return atomicDeduct(db, userId, amount, jobId);
+  // Merchant try-on is the one job type the monthly plan covers.
+  return atomicDeduct(db, userId, amount, jobId, { unlimitedPlan: true });
 }
 
 export async function merchantAdminGrant(
