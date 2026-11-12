@@ -24,6 +24,7 @@ import {
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
 import { isShopifyPreviewOrigin } from './lib/shopify-origin.js';
+import { adminAccountAnalyticsRoutes } from './modules/admin/account-analytics.routes.js';
 import { adminAccountsRoutes } from './modules/admin/accounts.routes.js';
 import { adminAuditRoutes } from './modules/admin/audit.routes.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
@@ -569,6 +570,7 @@ export async function buildServer(env: Env) {
   await app.register(adminContactRoutes);
   await app.register(adminMerchantsRoutes);
   await app.register(adminAccountsRoutes);
+  await app.register(adminAccountAnalyticsRoutes);
   await app.register(inviteRoutes);
   await app.register(adminMerchantOrgRoutes);
   await app.register(adminMerchantDeviceRoutes);

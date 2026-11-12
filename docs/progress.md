@@ -1,3 +1,13 @@
+# 2026-11-12 — Account console phase 2: per-account analytics (local, not pushed)
+
+- **Done:**
+  - `merchant/analytics/handlers.ts` (`buildSummary`/`buildTimeseries`/`buildBreakdown`) shared by the merchant routes and new
+    `GET /admin/accounts/:id/analytics/{summary,timeseries,breakdown}` (guard `accounts.read`, 404 for an unknown account,
+    whole-merchant scope with optional branch/staff/device filters).
+  - Console account detail gets an Analytics section reusing RangePicker, KpiCard, TrendChart and BreakdownTable.
+  - Verified: `admin-account-analytics` 4 tests, `merchant-analytics` 44 (regression after the refactor); merchant-web typecheck, 126 tests, build.
+- **Failed / Not Done:** no browser check; cross-merchant overview (totals across all accounts) not built; heatmap not shown per account.
+
 # 2026-11-12 — Account console phase 1: hardening, accounts, invite, /hq UI (local, not pushed)
 
 - **Done:**

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
+import { AccountAnalytics } from '@/components/hq/account-analytics';
 import { useHq } from '@/components/hq/hq-session';
 import { C } from '@/components/tokens';
 import { ListState } from '@/components/ui/state';
@@ -203,6 +204,8 @@ export default function AccountDetail() {
                 </p>
               )}
             </section>
+
+            <AccountAnalytics merchantId={d.id} />
 
             <section style={card} aria-label="Branches and staff">
               <h2 style={h2}>Branches</h2>
