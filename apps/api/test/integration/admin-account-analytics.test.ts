@@ -1,3 +1,4 @@
+import { schema } from '@aivastra/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
@@ -64,5 +65,36 @@ describe('GET /admin/accounts/:id/analytics/*', () => {
     const url = `/admin/accounts/${m.merchantId}/analytics/summary?${RANGE}`;
     expect((await get(url, await memberAuthHeader(app, m.userId))).statusCode).toBe(401);
     expect((await get(url, await adminAuthHeader(app, 'SUPPORT'))).statusCode).toBe(403);
+  });
+});
+
+describe('GET /admin/accounts/:id/shopify-stores', () => {
+  it('lists only the stores owned by this account, without tokens', async () => {
+    const a = await createTestMerchant(app);
+    const b = await createTestMerchant(app);
+    const mk = async (domain: string, owner: string) => {
+      const [row] = await app.db
+        .insert(schema.shopifyStores)
+        .values({
+          shopDomain: domain,
+          accessToken: 'x',
+          shopifyShopId: 770000000 + Math.floor(Math.random() * 1e6),
+          scope: 'read_products',
+          ownerUserId: owner,
+        })
+        .returning();
+      return row;
+    };
+    await mk(`a-${Date.now()}.myshopify.com`, a.userId);
+    await mk(`b-${Date.now()}.myshopify.com`, b.userId);
+    const res = await get(
+      `/admin/accounts/${a.merchantId}/shopify-stores`,
+      await adminAuthHeader(app),
+    );
+    expect(res.statusCode).toBe(200);
+    const { stores } = res.json();
+    expect(stores).toHaveLength(1);
+    expect(stores[0].shopDomain).toMatch(/^a-/);
+    expect(JSON.stringify(stores)).not.toContain('accessToken');
   });
 });

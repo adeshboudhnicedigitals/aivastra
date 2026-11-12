@@ -31,6 +31,16 @@ type Org = {
     staff: Array<{ id: string; email: string; displayName: string; isActive: boolean }>;
   }>;
 };
+type ShopifyStore = {
+  id: string;
+  shopDomain: string;
+  shopName: string | null;
+  partnerDevelopment: boolean;
+  installedAt: string;
+  uninstalledAt: string | null;
+  balance: number;
+  jobs: number;
+};
 type Device = {
   id: string;
   branchId: string;
@@ -85,6 +95,10 @@ export default function AccountDetail() {
   const devices = useQuery({
     queryKey: ['hq', 'account', id, 'devices'],
     queryFn: () => hqFetch<Device[]>(`/admin/merchants/${id}/devices`),
+  });
+  const stores = useQuery({
+    queryKey: ['hq', 'account', id, 'shopify'],
+    queryFn: () => hqFetch<{ stores: ShopifyStore[] }>(`/admin/accounts/${id}/shopify-stores`),
   });
   const invite = useQuery({
     queryKey: ['hq', 'account', id, 'invite'],
@@ -220,6 +234,27 @@ export default function AccountDetail() {
                       {b.name}
                       {!b.isActive && ' (inactive)'}: {b.staff.filter((s) => s.isActive).length}{' '}
                       staff
+                    </li>
+                  ))}
+                </ul>
+              </ListState>
+            </section>
+
+            <section style={card} aria-label="Shopify stores">
+              <h2 style={h2}>Shopify stores</h2>
+              <ListState
+                status={stores.status}
+                isEmpty={(stores.data?.stores.length ?? 0) === 0}
+                emptyText="No Shopify stores are linked to this account."
+              >
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, color: C.text }}>
+                  {stores.data?.stores.map((st) => (
+                    <li key={st.id}>
+                      {st.shopName ?? st.shopDomain} ({st.shopDomain}):{' '}
+                      {st.uninstalledAt ? 'uninstalled' : 'installed'}{' '}
+                      {relativeTime(st.installedAt)}, {st.balance.toLocaleString('en-IN')} credits,{' '}
+                      {st.jobs} try-ons
+                      {st.partnerDevelopment && ' (development store)'}
                     </li>
                   ))}
                 </ul>

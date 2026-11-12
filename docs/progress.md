@@ -1,3 +1,11 @@
+# 2026-11-12 — Account console phase 3 (read side): Shopify stores under an account (local, not pushed)
+
+- **Done:** `GET /admin/accounts/:id/shopify-stores` (guard `accounts.read`; identity + credits + try-on count, no tokens or shop contact),
+  using the existing link `shopify_stores.owner_user_id = merchants.user_id` that the account list already uses, so no migration.
+  Account detail shows the stores. Verified: `admin-account-analytics` 5 tests; merchant-web typecheck.
+- **Not Done:** attaching an unowned store to an account from the console (a write that needs a product decision: who may link,
+  audit, what happens to credits ownership); the standalone Shopify stores/purchases pages stay in admin-web for now.
+
 # 2026-11-12 — Account console phase 2: per-account analytics (local, not pushed)
 
 - **Done:**

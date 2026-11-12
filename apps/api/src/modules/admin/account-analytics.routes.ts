@@ -7,7 +7,7 @@ import {
   AnalyticsTimeseriesQuery,
   type AnalyticsTimeseriesResponse,
 } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -72,6 +72,41 @@ export async function adminAccountAnalyticsRoutes(app: FastifyInstance) {
       const { id } = req.params as z.infer<typeof Params>;
       const q = req.query as AnalyticsBreakdownQuery;
       return buildBreakdown(app, q, await scopeFor(id, q));
+    },
+  );
+
+  // Phase 3: the Shopify stores that roll up under this account. The link is the one the account
+  // list already uses (shopify_stores.owner_user_id = the merchant's user), so a store with no
+  // owner is not under any account. Identity and billing fields only: no tokens, no shop contact.
+  app.get(
+    '/admin/accounts/:id/shopify-stores',
+    { preHandler: GUARD, schema: { params: Params } },
+    async (req) => {
+      const { id } = req.params as z.infer<typeof Params>;
+      const [m] = await app.db
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, id));
+      if (!m) throw new AppError('NOT_FOUND', 404, 'Account not found');
+      const stores = await app.db
+        .select({
+          id: schema.shopifyStores.id,
+          shopDomain: schema.shopifyStores.shopDomain,
+          shopName: schema.shopifyStores.shopName,
+          partnerDevelopment: schema.shopifyStores.partnerDevelopment,
+          installedAt: schema.shopifyStores.installedAt,
+          uninstalledAt: schema.shopifyStores.uninstalledAt,
+          balance: sql<number>`coalesce(${schema.shopifyStoreCredits.balance}, 0)::int`,
+          jobs: sql<number>`(select count(*)::int from ${schema.jobs} where ${schema.jobs.shopifyStoreId} = ${schema.shopifyStores.id})`,
+        })
+        .from(schema.shopifyStores)
+        .leftJoin(
+          schema.shopifyStoreCredits,
+          eq(schema.shopifyStoreCredits.storeId, schema.shopifyStores.id),
+        )
+        .where(eq(schema.shopifyStores.ownerUserId, m.userId))
+        .orderBy(desc(schema.shopifyStores.installedAt));
+      return { stores };
     },
   );
 }
