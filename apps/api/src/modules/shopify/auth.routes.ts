@@ -4,8 +4,9 @@ import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
-import { sendShopifyWelcomeEmail } from '../../lib/mailer.js';
+import { sendShopifyInstallNotifyEmail, sendShopifyWelcomeEmail } from '../../lib/mailer.js';
 import { getShopifyTrialCredits } from '../../lib/resolution-config.js';
+import { parseAlertRecipients } from '../fleet/notify.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
 import { numericIdFromGid, shopifyGraphQL, verifyQueryHmac } from './service.js';
 import { type TokenGrant, toTokenGrant } from './token.js';
@@ -233,7 +234,10 @@ export async function provisionShopifyStore(
     .limit(1);
 
   const store = await upsertShopifyStore(app, details, accessToken, scope, grant);
-  if (!prior) await sendInstallWelcomeEmail(app, store, log);
+  if (!prior) {
+    await sendInstallWelcomeEmail(app, store, log);
+    await notifyOperatorsOfInstall(app, details, log);
+  }
   await writeWidgetKeyMetafield(shop, accessToken, details.shopifyShopId, store.storeKey, log);
   // Reauthorization can be reached only after a widget-config PATCH has
   // already committed Postgres and Shopify rejected the old token. Publish
@@ -279,6 +283,33 @@ async function sendInstallWelcomeEmail(
     });
   } catch (err) {
     log.error({ err, storeId: store.id }, 'failed to send shopify welcome email');
+  }
+}
+
+/**
+ * Tells the team a shop installed for the first time. Tolerant like the welcome mail — a send
+ * failure never discards a valid token — and opt-in via SHOPIFY_INSTALL_NOTIFY_EMAILS.
+ */
+async function notifyOperatorsOfInstall(
+  app: FastifyInstance,
+  details: ShopDetails,
+  log: FastifyBaseLogger,
+) {
+  const to = parseAlertRecipients(app.env.SHOPIFY_INSTALL_NOTIFY_EMAILS);
+  if (to.length === 0) return;
+  try {
+    await sendShopifyInstallNotifyEmail(app.env.RESEND_API_KEY, app.env.EMAIL_FROM, to, {
+      shopName: details.name ?? null,
+      shopDomain: details.shopDomain,
+      primaryDomain: details.primaryDomain,
+      ownerName: details.shopOwner,
+      email: details.email,
+      phone: details.phone,
+      timezone: details.ianaTimezone,
+      partnerDevelopment: details.partnerDevelopment,
+    });
+  } catch (err) {
+    log.error({ err, shop: details.shopDomain }, 'failed to send shopify install notification');
   }
 }
 

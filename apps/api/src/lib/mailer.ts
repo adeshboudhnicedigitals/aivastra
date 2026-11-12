@@ -259,6 +259,53 @@ export async function sendShopifyWelcomeEmail(
   });
 }
 
+function shopifyInstallNotifyHtml(p: ShopifyInstallNotice): string {
+  const row = (label: string, value?: string | null) =>
+    value?.trim()
+      ? `<tr><td style="padding:6px 12px 6px 0;font-size:14px;color:#888;white-space:nowrap;vertical-align:top;">${label}</td><td style="padding:6px 0;font-size:14px;color:#1a1a1a;">${escapeHtml(value)}</td></tr>`
+      : '';
+  return emailShell(`
+    ${banner('New Shopify store installed 🛍️')}
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">A new shop just installed the Ai Vastra app.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+      ${row('Shop', p.shopName)}
+      ${row('Domain', p.shopDomain)}
+      ${row('Storefront', p.primaryDomain)}
+      ${row('Owner', p.ownerName)}
+      ${row('Email', p.email)}
+      ${row('Phone', p.phone)}
+      ${row('Timezone', p.timezone)}
+      ${row('Plan', p.partnerDevelopment ? 'Partner development store (test)' : 'Live store')}
+    </table>
+    ${signOff()}
+  `);
+}
+
+export type ShopifyInstallNotice = {
+  shopName: string | null;
+  shopDomain: string;
+  primaryDomain?: string | null;
+  ownerName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  timezone?: string | null;
+  partnerDevelopment: boolean;
+};
+
+export async function sendShopifyInstallNotifyEmail(
+  apiKey: string,
+  from: string,
+  to: string[],
+  notice: ShopifyInstallNotice,
+): Promise<void> {
+  await send(apiKey, {
+    from,
+    to,
+    subject: `New Shopify install — ${notice.shopName?.trim() || notice.shopDomain}`,
+    html: shopifyInstallNotifyHtml(notice),
+  });
+}
+
 export async function sendPaymentReceiptEmail(
   apiKey: string,
   from: string,
