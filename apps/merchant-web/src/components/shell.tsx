@@ -1,6 +1,7 @@
 'use client';
 import {
   BarChart3,
+  Contact,
   LayoutDashboard,
   LogOut,
   MonitorSmartphone,
@@ -41,6 +42,7 @@ const NAV: NavItem[] = [
   },
   { href: '/catalogue', label: 'Catalogue', icon: Package, adminOnly: false, group: 'MAIN' },
   { href: '/carts', label: 'Bill a Cart', icon: ShoppingCart, adminOnly: false, group: 'MAIN' },
+  { href: '/customers', label: 'Customers', icon: Contact, adminOnly: true, group: 'MAIN' },
   { href: '/branches', label: 'Branches', icon: Store, adminOnly: true, group: 'MAIN' },
   { href: '/staff', label: 'Staff', icon: Users, adminOnly: true, group: 'MAIN' },
   {

@@ -80,6 +80,7 @@ import { renewalPromptRoutes } from './modules/credits/renewal-prompt.routes.js'
 import { creditsRoutes } from './modules/credits/routes.js';
 import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-login-check.routes.js';
 import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
+import { customerRoutes } from './modules/crm/customers.routes.js';
 import { deviceIdentifyRoutes } from './modules/crm/identify.js';
 import { crmSettingsRoutes } from './modules/crm/settings.routes.js';
 import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
@@ -490,6 +491,7 @@ export async function buildServer(env: Env) {
   await app.register(deviceEventsRoutes);
   await app.register(deviceTabletRoutes);
   await app.register(crmSettingsRoutes);
+  await app.register(customerRoutes);
   await app.register(deviceIdentifyRoutes);
   await app.register(inventoryRoutes);
   await app.register(cartRoutes);

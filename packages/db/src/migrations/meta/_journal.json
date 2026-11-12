@@ -1870,6 +1870,13 @@
       "when": 1794486017072,
       "tag": "0267_carts",
       "breakpoints": true
+    },
+    {
+      "idx": 268,
+      "version": "7",
+      "when": 1794486555734,
+      "tag": "0268_customer_segments",
+      "breakpoints": true
     }
   ]
 }

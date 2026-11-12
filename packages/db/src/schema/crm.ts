@@ -3,6 +3,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -121,5 +122,27 @@ export const shopperConsents = pgTable(
   },
   (t) => ({
     byShopper: index('shopper_consents_shopper_idx').on(t.shopperId, t.kind, t.createdAt),
+  }),
+);
+
+/** A saved customer filter (CRM phase 4, decision K3): the same shape the list query takes. */
+export const merchantCustomerSegments = pgTable(
+  'merchant_customer_segments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    // Validated by CustomerFilters (packages/types/src/customers.ts) on write and on read.
+    filters: jsonb('filters').$type<Record<string, unknown>>().notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byMerchantName: uniqueIndex('merchant_customer_segments_merchant_name_uq').on(
+      t.merchantId,
+      t.name,
+    ),
   }),
 );

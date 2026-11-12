@@ -485,7 +485,7 @@ are *derived* from `jobs` here, never emitted by the dispatcher),
 token and app secret sealed under `CRM_DATA_KEY`), `merchant_crm_settings` (retention has no
 default; identification stays off until both periods are chosen), `shoppers` (per merchant:
 encrypted phone + keyed lookup hash, wiped by retention), `shopper_consents` (append-only,
-versioned), `instore_sessions.shopper_id`.
+versioned), `merchant_customer_segments` (saved list filters), `instore_sessions.shopper_id`.
 
 **Inventory & cart** — `size_sets` (AiVastra-curated, attached to `garment_subcategories.size_set_id`),
 `merchant_catalog_variants` (size × colour, SKU, barcode unique per merchant), `variant_branch_stock`

@@ -1,3 +1,21 @@
+# 2026-11-12 — CRM phase 4: customer list, profile, export, segments, deletion (local, not pushed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-crm-phase4-customer-screens.md` (decisions K1–K5).
+  - Migration **`0268_customer_segments`** (additive; applied to local `tryon_dev` only).
+  - API `modules/crm/customers.routes.ts`, merchant admin only (staff 403): list (name, exact phone via the keyed hash,
+    branch, marketing consent, last-visit range, min visits; keyset cursor), profile with full number (audited
+    `customer.view`), CSV export (audited `customer.export` with filter + row count; formula-injection guarded; capped
+    at 20,000 rows), saved segments (same filter schema), and delete on request (`customer.delete`: photos first, then
+    the same wipe as retention, shared via `wipeShoppers`/`purgeJobPhotos`).
+  - Merchant Web `/customers` (admin nav): filters, table with masked phones, profile panel, export, segments, delete.
+  - Verified: `crm-customers` 9 + `crm-retention` 5 (after the refactor); merchant-web typecheck, lint, 117 tests.
+- **Failed / Not Done:**
+  - No page opened in a browser. Export is built in memory (fine to the 20,000-row cap, not beyond).
+  - Deleting a customer does not touch Meta: a message already sent to their WhatsApp stays on their phone.
+- **Open Questions / outside the repo:**
+  - Legal review of the deletion wording and the retention of consent history after deletion.
+
 # 2026-11-12 — CRM phase 3: sizes, variants, per-branch stock, cart (local, committed, not pushed)
 
 - **Done:**

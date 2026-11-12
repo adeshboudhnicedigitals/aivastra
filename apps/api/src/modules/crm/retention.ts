@@ -12,6 +12,57 @@ import type { FastifyInstance } from 'fastify';
 const BATCH = 500;
 const INTERVAL_MS = 60 * 60 * 1000;
 
+type Tx = Parameters<Parameters<FastifyInstance['db']['transaction']>[0]>[0];
+
+/**
+ * Wipes these shoppers' personal data: phone (both forms), name, and their visits' link to them.
+ * The row and its consent history stay, anonymised. Shared by retention and deletion on request
+ * (phase 4, K5) so "deleted" means the same thing everywhere.
+ */
+export async function wipeShoppers(tx: Tx, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const list = sql.join(
+    ids.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  await tx.execute(
+    sql`update instore_sessions set shopper_id = null where shopper_id in (${list})`,
+  );
+  await tx.execute(sql`
+    update shoppers
+    set phone_enc = null, phone_hash = null, display_name = null, deleted_at = now()
+    where id in (${list})
+  `);
+}
+
+export type PhotoJobRow = {
+  id: string;
+  customer_photo_key: string | null;
+  result_key: string | null;
+  thumbnail_key: string | null;
+};
+
+/** Deletes the objects first, then nulls the keys (a crash in between is safe to re-run). */
+export async function purgeJobPhotos(app: FastifyInstance, rows: PhotoJobRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const keys = new Set<string>();
+  for (const r of rows) {
+    for (const k of [r.customer_photo_key, r.result_key, r.thumbnail_key]) if (k) keys.add(k);
+  }
+  for (const key of keys) await app.storage.deleteObject(key);
+  const ids = sql.join(
+    [...new Set(rows.map((r) => r.id))].map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  await app.db.transaction(async (tx) => {
+    await tx.execute(sql`update jobs set customer_photo_key = null where id in (${ids})`);
+    await tx.execute(
+      sql`update job_outputs set result_key = null, thumbnail_key = null where job_id in (${ids})`,
+    );
+  });
+  return keys.size;
+}
+
 export async function runCrmRetentionTick(app: FastifyInstance): Promise<{ wiped: number }> {
   return app.db.transaction(async (tx) => {
     const lock = await tx.execute<{ ok: boolean }>(
@@ -32,18 +83,7 @@ export async function runCrmRetentionTick(app: FastifyInstance): Promise<{ wiped
     `);
     const ids = due.map((r) => r.id);
     if (ids.length === 0) return { wiped: 0 };
-    const list = sql.join(
-      ids.map((id) => sql`${id}::uuid`),
-      sql`, `,
-    );
-    await tx.execute(
-      sql`update instore_sessions set shopper_id = null where shopper_id in (${list})`,
-    );
-    await tx.execute(sql`
-      update shoppers
-      set phone_enc = null, phone_hash = null, display_name = null, deleted_at = now()
-      where id in (${list})
-    `);
+    await wipeShoppers(tx, ids);
     app.log.info({ wiped: ids.length }, 'crm retention: shopper profiles deleted');
     return { wiped: ids.length };
   });
@@ -89,27 +129,9 @@ export async function runCrmPhotoRetentionTick(
     `);
     if (due.length === 0) return { jobs: 0, objects: 0 };
 
-    const keys = new Set<string>();
-    for (const r of due) {
-      for (const k of [r.customer_photo_key, r.result_key, r.thumbnail_key]) if (k) keys.add(k);
-    }
-    for (const key of keys) await app.storage.deleteObject(key);
-
-    const ids = sql.join(
-      [...new Set(due.map((r) => r.id))].map((id) => sql`${id}::uuid`),
-      sql`, `,
-    );
-    await app.db.transaction(async (tx) => {
-      await tx.execute(sql`update jobs set customer_photo_key = null where id in (${ids})`);
-      await tx.execute(
-        sql`update job_outputs set result_key = null, thumbnail_key = null where job_id in (${ids})`,
-      );
-    });
-    app.log.info(
-      { jobs: due.length, objects: keys.size },
-      'crm retention: in-store photos deleted',
-    );
-    return { jobs: due.length, objects: keys.size };
+    const objects = await purgeJobPhotos(app, due);
+    app.log.info({ jobs: due.length, objects }, 'crm retention: in-store photos deleted');
+    return { jobs: due.length, objects };
   } finally {
     await app.redis.del(PHOTO_LOCK_KEY);
   }
