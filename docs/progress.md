@@ -1,3 +1,20 @@
+# 2026-11-13 — Browser write-flow pass (local, not committed)
+
+- **Seed data (kept until asked):** `wf-merchant@example.test` (merchant "WF Test Stores") and `wf-console@example.test` (SUPER_ADMIN), password
+  `Browserpass1`; two branches, two catalog items with stock, an open cart, two refund requests. Local `tryon_dev` only.
+- **Flows exercised in the browser, each checked in the database:**
+  - Console add credits: confirm dialog shows the new balance and reason; balance 100 → 150, `credit_ledger` row, `merchant.credit_grant` audit row.
+  - Console refund requests: approve (balance +3, `REFUND_USER_REQUEST` ledger row, audit row) and reject with a note (note stored, audit row). Both
+    refusals the API gives (job not COMPLETED; no ledger charge to refund) show correctly inside the dialog.
+  - Merchant Bill a cart: code lookup, totals (₹2,499 + 2 × ₹4,599 = ₹11,697), "Mark all as billed" → cart `billed`, lines billed, 3 `sold` rows and 3
+    `sale_recorded` events (one per unit).
+- **Bug fixed:** the console's two `<dialog>`s (`components/hq/modal.tsx`, the refund detail dialog) opened in the top-left corner: the CSS reset zeroes
+  the margin a modal dialog centres with. Added `margin: 'auto'` to both; verified centred.
+- **Found, not fixed (needs a decision):** merchant-web's CSP `img-src` allows only self, loopback MinIO, `*.r2.cloudflarestorage.com` and the API
+  origin (`src/lib/csp.ts`), so presigned image URLs on any other host are blocked. Locally `R2_PUBLIC_PRESIGN_BASE` is `https://wa-dev-minio.aivastra.com`,
+  so the refund thumbnails and preview do not load. Production's presign host has not been checked against this list.
+- **Not covered:** staff-role scoping in the browser, and the tablet-side cart add.
+
 # 2026-11-13 — Insights queries measured on a large fixture (local scratch DB, no code change)
 
 - **Fixture** (scratch database, since dropped): one merchant with 500k sessions over 12 months across 25 branches, 40 other merchants with 12.5k each

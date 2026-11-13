@@ -424,6 +424,8 @@ function ReviewDialog({
       onClose={onClose}
       style={{
         width: 'min(520px, calc(100vw - 32px))',
+        // The CSS reset zeroes every margin, which is what a modal <dialog> uses to centre itself.
+        margin: 'auto',
         padding: 0,
         border: `1px solid ${C.border}`,
         borderRadius: 14,

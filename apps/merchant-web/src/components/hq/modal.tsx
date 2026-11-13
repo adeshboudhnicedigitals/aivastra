@@ -35,6 +35,8 @@ export function Modal({
       style={{
         width: `min(${width}px, calc(100vw - 32px))`,
         maxHeight: 'calc(100dvh - 48px)',
+        // The CSS reset zeroes every margin, which is what a modal <dialog> uses to centre itself.
+        margin: 'auto',
         padding: 0,
         border: `1px solid ${C.border}`,
         borderRadius: 14,
