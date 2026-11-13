@@ -21,7 +21,7 @@ embedded = true
 # installation Shopify installs the app without calling us, and the first
 # authenticated request's session token is exchanged for an offline access
 # token (see exchangeSessionToken in apps/api/src/modules/shopify/token.ts).
-scopes = "read_products,write_products,read_themes,read_orders"
+scopes = "read_products,write_products,read_themes"
 optional_scopes = [ ]
 
 [auth]
@@ -46,18 +46,19 @@ api_version = "2026-07"
   customer_data_request_url = "https://app.aivastra.com/v1/shopify/webhooks/customers_data_request"
   shop_deletion_url = "https://app.aivastra.com/v1/shopify/webhooks/shop_redact"
 
+  # DEFERRED (production only): the orders/paid subscription for the Analytics
+  # revenue KPI. Shopify rejects the release until the production app is approved
+  # for protected customer data. When it is, restore:
+  #   [[webhooks.subscriptions]]
+  #   topics = [ "orders/paid" ]
+  #   uri = "https://app.aivastra.com/v1/shopify/webhooks/orders_paid"
+  # and add read_orders back to scopes above. Dev and staging keep both.
+
   # Declared here (app-wide), not only via the per-shop registerWebhooksDecorator
   # call in auth.routes.ts (provisionShopifyStore) — that call only fires at
   # first install or reauth, so a store installed before this topic existed
   # would otherwise never get subscribed. A `make shopify-deploy` publishes
   # this subscription for every install, existing and new.
-  # Revenue attribution (Analytics page). Needs read_orders above, and the app
-  # must be approved for protected customer data in the Partner Dashboard or the
-  # payload arrives without customer id/email and nothing can be attributed.
-  [[webhooks.subscriptions]]
-  topics = [ "orders/paid" ]
-  uri = "https://app.aivastra.com/v1/shopify/webhooks/orders_paid"
-
   [[webhooks.subscriptions]]
   topics = [ "app_purchases_one_time/update" ]
   uri = "https://app.aivastra.com/v1/shopify/webhooks/app_purchases_one_time_update"
