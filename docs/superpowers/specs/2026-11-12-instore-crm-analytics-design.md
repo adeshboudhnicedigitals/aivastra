@@ -307,8 +307,7 @@ without rework or a breaking migration. Concretely:
   *Deferred 2026-11-12 with POS. §9 keeps every option open.*
 - **Q2** Which POS do target chains use (e.g. Ginesys, Logic ERP, SAP Retail, Shopify POS)? Decides
   the first connector. *Deferred. The adapter seam (§9) is built regardless.*
-- **Q3** Does the shopper or only staff add to cart in kiosk mode? Kiosk carts without staff may be
-  abandoned at a higher rate.
+- **Q3** ~~Does the shopper or only staff add to cart in kiosk mode?~~ *Answered 2026-11-12: shoppers can add to the cart in kiosk mode (built in phase 3). Staff bill it at the counter by cart code; unbilled carts are abandoned after 24h.*
 - **Q4** ~~Retention defaults~~ *Answered 2026-11-12: no default. The merchant must choose a retention period for shopper photos and profiles before identification can be switched on.*
 - **Q5** ~~Who pays in mode B~~ *Moot 2026-11-12: mode A is primary, so messages are billed by Meta to the merchant's own WhatsApp Business account.*
 - **Q6** Is the DPA (data processing agreement) template a legal task already owned by someone?

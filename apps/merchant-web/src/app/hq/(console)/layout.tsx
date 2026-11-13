@@ -1,6 +1,15 @@
 'use client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BarChart3, CreditCard, Inbox, LogOut, PauseCircle, Undo2, Users } from 'lucide-react';
+import {
+  BarChart3,
+  CreditCard,
+  Inbox,
+  LayoutDashboard,
+  LogOut,
+  PauseCircle,
+  Undo2,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -15,6 +24,7 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 const SIDEBAR_WIDTH = 220;
 // `permission` hides an entry from roles whose API calls would only answer 403.
 const NAV = [
+  { href: '/hq/overview', label: 'Overview', icon: LayoutDashboard, permission: 'accounts.read' },
   { href: '/hq/accounts', label: 'Accounts', icon: Users, permission: 'accounts.read' },
   { href: '/hq/payments', label: 'Payments', icon: CreditCard, permission: 'payments.read' },
   {

@@ -2,6 +2,8 @@ import { schema } from '@aivastra/db';
 import {
   AnalyticsBreakdownQuery,
   type AnalyticsBreakdownResponse,
+  AnalyticsHeatmapQuery,
+  type AnalyticsHeatmapResponse,
   AnalyticsQuery,
   type AnalyticsSummaryResponse,
   AnalyticsTimeseriesQuery,
@@ -12,6 +14,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { buildBreakdown, buildSummary, buildTimeseries } from '../merchant/analytics/handlers.js';
+import { heatmapCells } from '../merchant/analytics/heatmap.js';
+import { resolveWindow } from '../merchant/analytics/params.js';
 import type { AnalyticsScope } from '../merchant/analytics/scope.js';
 import { requirePermission } from './guard.js';
 
@@ -72,6 +76,23 @@ export async function adminAccountAnalyticsRoutes(app: FastifyInstance) {
       const { id } = req.params as z.infer<typeof Params>;
       const q = req.query as AnalyticsBreakdownQuery;
       return buildBreakdown(app, q, await scopeFor(id, q));
+    },
+  );
+
+  // Same as the merchant heatmap: read from analytics_buckets, so it trails live activity by ~2 min.
+  app.get(
+    '/admin/accounts/:id/analytics/heatmap',
+    { preHandler: GUARD, schema: { params: Params, querystring: AnalyticsHeatmapQuery } },
+    async (req): Promise<AnalyticsHeatmapResponse> => {
+      const { id } = req.params as z.infer<typeof Params>;
+      const q = req.query as AnalyticsHeatmapQuery;
+      const scope = await scopeFor(id, q);
+      const window = await resolveWindow(app.db, q, new Date());
+      return {
+        window: { from: window.from, to: window.to, tz: window.tz },
+        metric: q.metric,
+        cells: await heatmapCells(app.db, scope, window, q.metric),
+      };
     },
   );
 

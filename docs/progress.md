@@ -1,3 +1,18 @@
+# 2026-11-13 — Console: cross-account overview and per-account peak hours (local, not pushed)
+
+- **Done:**
+  - API: `GET /admin/analytics/overview` (accounts.read): totals, daily points and the top 10 accounts across every merchant, with its
+    own SQL (the per-merchant queries always carry `merchant_id`) using the same metric definitions (`iso` and `NOT_REFUNDED` are now
+    exported from `merchant/analytics/queries.ts`). `GET /admin/accounts/:id/analytics/heatmap` reuses `heatmapCells`.
+  - Console: `/hq/overview` (now the console home and first sidebar item) and a Peak hours section on the account page.
+  - Also this session: console copies of Payments, Refund requests, Held batches, Contact requests and Credit analysis (admin-web
+    pages untouched, they stay until the user says to retire them); spec Q3 answered (shoppers can add to the cart in kiosk mode).
+  - Verified: `admin-analytics-overview` 3 tests, including parity (overview totals = sum of the per-account summaries);
+    regression `admin-account-analytics merchant-analytics analytics-heatmap` 53; api typecheck; merchant-web typecheck and 134 tests.
+- **Failed / Not Done:** no console page opened in a browser. Chat inbox, Dev API, Demo catalog sets and Studio users not copied
+  (Chat inbox needs `NEXT_PUBLIC_CHATBOT_URL`, a CSP change and a compose build arg first). The overview ranks by sessions and does
+  not show accounts with credits but no sessions in the window beyond the top 10.
+
 # 2026-11-12 — Account console phase 4: TOTP two-factor for admins, option B (local, not pushed)
 
 - **Decision:** option B. Roles holding `accounts.read` or `credits.grant` must use TOTP once `ADMIN_MFA_ENFORCE=true`; anyone who

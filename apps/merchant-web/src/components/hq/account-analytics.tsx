@@ -1,6 +1,8 @@
 'use client';
 import type {
   AnalyticsBreakdownResponse,
+  AnalyticsHeatmapMetric,
+  AnalyticsHeatmapResponse,
   AnalyticsSummaryResponse,
   AnalyticsTimeseriesResponse,
 } from '@aivastra/types';
@@ -8,8 +10,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { BreakdownTable } from '@/components/analytics/BreakdownTable';
 import { KpiCard } from '@/components/analytics/KpiCard';
+import { PeakHoursHeatmap } from '@/components/analytics/PeakHoursHeatmap';
 import { type PickerState, RangePicker } from '@/components/analytics/RangePicker';
 import { TrendChart } from '@/components/analytics/TrendChart';
+import { FilterTabs } from '@/components/hq/list-parts';
 import { C } from '@/components/tokens';
 import { ListState } from '@/components/ui/state';
 import { ANALYTICS_TZ } from '@/lib/analytics';
@@ -18,6 +22,10 @@ import { hqFetch } from '@/lib/hq-api';
 
 const STALE_MS = 30_000;
 const n = (v: number) => v.toLocaleString('en-IN');
+const HEAT_OPTIONS = [
+  { k: 'sessions', l: 'Sessions' },
+  { k: 'tryons', l: 'Try-ons' },
+] as const;
 
 // One account's dashboards for the team console (phase 2). The same components the retailer
 // sees, fed from /admin/accounts/:id/analytics/* through the console's own client.
@@ -32,6 +40,7 @@ export function AccountAnalytics({ merchantId }: { merchantId: string }) {
     return rangeFor(picker.choice, new Date(), ANALYTICS_TZ);
   }, [picker]);
 
+  const [heatMetric, setHeatMetric] = useState<AnalyticsHeatmapMetric>('sessions');
   const base = `/admin/accounts/${merchantId}/analytics`;
   const qs = (extra = '') =>
     `from=${range?.from}&to=${range?.to}&tz=${encodeURIComponent(ANALYTICS_TZ)}${extra}`;
@@ -45,6 +54,13 @@ export function AccountAnalytics({ merchantId }: { merchantId: string }) {
   const series = useQuery({
     queryKey: ['hq', 'analytics', merchantId, 'series', range?.from, range?.to],
     queryFn: () => hqFetch<AnalyticsTimeseriesResponse>(`${base}/timeseries?${qs()}`),
+    enabled,
+    staleTime: STALE_MS,
+  });
+  const heatmap = useQuery({
+    queryKey: ['hq', 'analytics', merchantId, 'heatmap', range?.from, range?.to, heatMetric],
+    queryFn: () =>
+      hqFetch<AnalyticsHeatmapResponse>(`${base}/heatmap?${qs(`&metric=${heatMetric}`)}`),
     enabled,
     staleTime: STALE_MS,
   });
@@ -103,6 +119,24 @@ export function AccountAnalytics({ merchantId }: { merchantId: string }) {
         </div>
       )}
       {series.data && <TrendChart points={series.data.points} />}
+      <section aria-label="Peak hours" style={{ display: 'grid', gap: 8 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>Peak hours</h3>
+        <FilterTabs
+          label="Peak hours metric"
+          value={heatMetric}
+          options={HEAT_OPTIONS}
+          onChange={setHeatMetric}
+        />
+        <ListState
+          status={heatmap.status}
+          isEmpty={false}
+          emptyText=""
+          error="Could not load peak hours."
+          onRetry={() => void heatmap.refetch()}
+        >
+          <PeakHoursHeatmap cells={heatmap.data?.cells ?? []} metric={heatMetric} />
+        </ListState>
+      </section>
       <ListState
         status={branches.status}
         isEmpty={(branches.data?.rows.length ?? 0) === 0}
