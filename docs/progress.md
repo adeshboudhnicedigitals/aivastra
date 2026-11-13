@@ -1,3 +1,20 @@
+# 2026-11-13 — Browser pass (Merchant Web + team console), fixes (local, not committed)
+
+- **Method:** Playwright (chromium) against the local dev stack with throwaway local users/data in `tryon_dev` (created via a script that was
+  deleted afterwards): every merchant page and every console page at desktop light/dark and 390px mobile, recording console errors, failed
+  requests and horizontal overflow.
+- **Found and fixed:**
+  - API crash: `/v1/jobs/stream` (SSE) left `subscribe()` un-caught, so a client leaving before the Redis subscribe resolved raised an
+    unhandled "Connection is closed" rejection and killed the whole API process. Fixed in `modules/jobs/sse.ts`; regression test in
+    `jobs-sse.test.ts` (fails without the fix).
+  - Hydration warning on every page (CSP nonce attribute on the theme script): `suppressHydrationWarning` on that tag.
+  - Mobile overflow on the retailer dashboard (funnel card had a fixed-width row: now wraps) and on the console account page (peak-hours
+    grid widened its grid track: `minmax(0, 1fr)`).
+- **Observed, not bugs:** `/customers` shows "customer data encryption is not configured" locally (no `CRM_DATA_KEY` in `.env`); the
+  dashboard funnel's tried ÷ sessions can exceed 100% (tries are counted per item, existing definition).
+- **Not done:** the browser pass covered rendering and errors only; no write flows (add credits, approve refund, billing a cart) were
+  exercised; Chat inbox/Dev API/Demo catalog are not in the console yet.
+
 # 2026-11-13 — Merchant Insights screen (local, not committed)
 
 - **Done:** `GET /v1/merchant/insights/{funnel,lost-demand,out-of-stock,reliability}` (source tables, same definitions as the

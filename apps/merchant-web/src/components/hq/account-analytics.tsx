@@ -77,6 +77,9 @@ export function AccountAnalytics({ merchantId }: { merchantId: string }) {
     <section
       aria-label="Analytics"
       style={{
+        // minmax(0, 1fr): a grid track defaults to min-content, so the peak-hours grid (which
+        // scrolls inside itself) would otherwise widen the whole card on a phone.
+        gridTemplateColumns: 'minmax(0, 1fr)',
         background: C.card,
         border: `1px solid ${C.border}`,
         borderRadius: 12,
@@ -119,7 +122,10 @@ export function AccountAnalytics({ merchantId }: { merchantId: string }) {
         </div>
       )}
       {series.data && <TrendChart points={series.data.points} />}
-      <section aria-label="Peak hours" style={{ display: 'grid', gap: 8 }}>
+      <section
+        aria-label="Peak hours"
+        style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}
+      >
         <h3 style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>Peak hours</h3>
         <FilterTabs
           label="Peak hours metric"

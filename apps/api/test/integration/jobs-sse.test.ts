@@ -40,6 +40,34 @@ describe('jobs-sse', () => {
     return login.json().accessToken as string;
   }
 
+  it('a client that drops the stream immediately does not crash the process', async () => {
+    const token = await getToken();
+    const address = app.server.address() as { port: number };
+    const rejections: unknown[] = [];
+    const onRejection = (e: unknown) => rejections.push(e);
+    process.on('unhandledRejection', onRejection);
+    try {
+      // Abort before the Redis subscribe can resolve: this used to surface as an unhandled
+      // "Connection is closed" rejection, which kills the API.
+      for (let i = 0; i < 5; i++) {
+        const req = http.get({
+          hostname: '127.0.0.1',
+          port: address.port,
+          path: '/v1/jobs/stream',
+          headers: { authorization: `Bearer ${token}` },
+        });
+        req.on('error', () => {});
+        req.on('socket', (sock) => setTimeout(() => sock.destroy(), 5));
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+    expect(rejections).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
+  });
+
   it('GET /v1/jobs/:id/events returns SSE headers', async () => {
     const token = await getToken();
     const address = app.server.address() as { port: number };
