@@ -8,30 +8,33 @@ import { useQuery } from '@tanstack/react-query';
 import { ANALYTICS_TZ, type AnalyticsRange } from './analytics';
 import { apiFetch } from './api';
 
-function qs(range: AnalyticsRange): string {
-  return new URLSearchParams({ from: range.from, to: range.to, tz: ANALYTICS_TZ }).toString();
+function qs(range: AnalyticsRange, branchId?: string): string {
+  const p = new URLSearchParams({ from: range.from, to: range.to, tz: ANALYTICS_TZ });
+  if (branchId) p.set('branchId', branchId);
+  return p.toString();
 }
 
 // Same 30s freshness as the dashboard; errors are left to the caller's ListState.
 const STALE_MS = 30_000;
 
-function useInsight<T>(name: string, range: AnalyticsRange | null) {
+function useInsight<T>(name: string, range: AnalyticsRange | null, branchId?: string) {
   return useQuery({
-    queryKey: ['insights', name, range?.from, range?.to],
-    queryFn: () => apiFetch<T>(`/v1/merchant/insights/${name}?${qs(range as AnalyticsRange)}`),
+    queryKey: ['insights', name, range?.from, range?.to, branchId ?? null],
+    queryFn: () =>
+      apiFetch<T>(`/v1/merchant/insights/${name}?${qs(range as AnalyticsRange, branchId)}`),
     enabled: range !== null,
     staleTime: STALE_MS,
   });
 }
 
-export const useInsightsFunnel = (r: AnalyticsRange | null) =>
-  useInsight<InsightsFunnelResponse>('funnel', r);
-export const useLostDemand = (r: AnalyticsRange | null) =>
-  useInsight<LostDemandResponse>('lost-demand', r);
-export const useOutOfStock = (r: AnalyticsRange | null) =>
-  useInsight<OutOfStockResponse>('out-of-stock', r);
-export const useInsightsReliability = (r: AnalyticsRange | null) =>
-  useInsight<InsightsReliabilityResponse>('reliability', r);
+export const useInsightsFunnel = (r: AnalyticsRange | null, branchId?: string) =>
+  useInsight<InsightsFunnelResponse>('funnel', r, branchId);
+export const useLostDemand = (r: AnalyticsRange | null, branchId?: string) =>
+  useInsight<LostDemandResponse>('lost-demand', r, branchId);
+export const useOutOfStock = (r: AnalyticsRange | null, branchId?: string) =>
+  useInsight<OutOfStockResponse>('out-of-stock', r, branchId);
+export const useInsightsReliability = (r: AnalyticsRange | null, branchId?: string) =>
+  useInsight<InsightsReliabilityResponse>('reliability', r, branchId);
 
 /** "42%" with at most one decimal; an em dash when there is nothing to divide. */
 export function pct(ratio: number | null): string {
