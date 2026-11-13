@@ -11,11 +11,12 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, isNull, like, or, type SQL, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, like, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from '../admin/audit.js';
+import { catalogSearchCondition } from './catalog-search.js';
 import {
   type CatalogJobStaff,
   createMerchantCatalogJob,
@@ -372,16 +373,13 @@ export async function listCatalogItems(
     eq(schema.merchantCatalogItems.merchantId, merchantId),
     isNull(schema.merchantCatalogItems.deletedAt),
   ];
-  if (search.trim()) {
-    const pattern = `%${search.trim()}%`;
-    // Merchants search by SKU as often as by label — match either.
-    conditions.push(
-      or(
-        ilike(schema.merchantCatalogItems.label, pattern),
-        ilike(schema.merchantCatalogItems.sku, pattern),
-      ),
-    );
-  }
+  // Merchants search by SKU as often as by label — match either, word by word.
+  conditions.push(
+    catalogSearchCondition(
+      [schema.merchantCatalogItems.label, schema.merchantCatalogItems.sku],
+      search,
+    ),
+  );
   if (subcategoryId) conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
 
   const items = await app.db
