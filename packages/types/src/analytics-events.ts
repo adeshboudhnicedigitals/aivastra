@@ -23,6 +23,8 @@ export const ANALYTICS_SERVER_EVENTS = [
   // CRM phase 3: cart lines added/removed on the tablet. A billed line is a sale_recorded.
   'cart_added',
   'cart_removed',
+  // A cart add refused because the size is out at the branch: the server-side out-of-stock demand number.
+  'cart_refused_oos',
 ] as const;
 export type AnalyticsServerEvent = (typeof ANALYTICS_SERVER_EVENTS)[number];
 

@@ -232,6 +232,21 @@ export async function cartRoutes(app: FastifyInstance) {
             )
             .limit(1);
           if (stock?.status === 'out') {
+            // The server-side out-of-stock demand number (Insights). Written outside any
+            // transaction because the add is refused; a retry counts again, which is fine
+            // for an advisory attempt count.
+            await recordEvent(app.db, {
+              event: 'cart_refused_oos',
+              merchantId: d.merchantId,
+              branchId: s.branchId,
+              deviceId: d.deviceId,
+              staffId: s.staffId,
+              sessionId: s.id,
+              shopperId: s.shopperId,
+              catalogItemId: variant.catalogItemId,
+              channel: s.mode,
+              props: { variantId: variant.id },
+            });
             throw new AppError('OUT_OF_STOCK', 409, 'this size is out of stock at this branch');
           }
 

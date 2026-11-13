@@ -1,3 +1,15 @@
+# 2026-11-13 — Merchant Insights screen (local, not committed)
+
+- **Done:** `GET /v1/merchant/insights/{funnel,lost-demand,out-of-stock,reliability}` (source tables, same definitions as the
+  dashboard; staff forced to their branch), new server event `cart_refused_oos` written when a cart add is refused as out of stock,
+  Merchant Web `/insights` page and sidebar entry. Plan: `docs/superpowers/plans/2026-11-13-merchant-insights-screen.md`
+  (minimum tries 5, stale stock 14 days, server OOS event: all as recommended).
+- **Verified:** `merchant-insights` 11 tests (hand-computed fixture, dashboard parity, staff scope, cross-merchant isolation, junk
+  variantId, zero-division nulls); cart/analytics-ingest/analytics-rollup/merchant-analytics suites 83 passing; api and merchant-web
+  typecheck; merchant-web 137 tests.
+- **Failed / Not Done:** page not opened in a browser; no branch filter on the page (API accepts `branchId`); no `EXPLAIN` on a large
+  fixture yet; console reuse of the insights (plan T8) not built.
+
 # 2026-11-13 — Console: cross-account overview and per-account peak hours (local, not pushed)
 
 - **Done:**

@@ -3,6 +3,7 @@ import {
   BarChart3,
   Contact,
   LayoutDashboard,
+  Lightbulb,
   LogOut,
   MonitorSmartphone,
   Package,
@@ -33,6 +34,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, adminOnly: false, group: 'MAIN' },
+  { href: '/insights', label: 'Insights', icon: Lightbulb, adminOnly: false, group: 'MAIN' },
   {
     href: '/performance',
     label: 'Performance',

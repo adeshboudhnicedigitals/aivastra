@@ -128,6 +128,18 @@ describe('cart on the tablet', () => {
     const res = await add(ctx, sid, m.id);
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe('OUT_OF_STOCK');
+    // Insights' server-side out-of-stock demand number: one refused add, one event.
+    const events = await app.db
+      .select()
+      .from(schema.analyticsEvents)
+      .where(
+        and(
+          eq(schema.analyticsEvents.sessionId, sid),
+          eq(schema.analyticsEvents.event, 'cart_refused_oos'),
+        ),
+      );
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ catalogItemId: ctx.item.id, props: { variantId: m.id } });
   });
 
   it("another merchant's variant is a 404", async () => {

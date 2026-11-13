@@ -31,6 +31,7 @@ export * from './job-taxonomy.js';
 export * from './jobs.js';
 export * from './merchant-analytics.js';
 export * from './merchant-device.js';
+export * from './merchant-insights.js';
 export * from './merchant-org.js';
 export * from './messaging.js';
 export * from './phone.js';
