@@ -1,6 +1,6 @@
 'use client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CreditCard, Inbox, LogOut, PauseCircle, Undo2, Users } from 'lucide-react';
+import { BarChart3, CreditCard, Inbox, LogOut, PauseCircle, Undo2, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -28,6 +28,12 @@ const NAV = [
     label: 'Held batches',
     icon: PauseCircle,
     permission: 'held_jobs.manage',
+  },
+  {
+    href: '/hq/credit-analysis',
+    label: 'Credit analysis',
+    icon: BarChart3,
+    permission: 'credit_analysis.read',
   },
   { href: '/hq/contacts', label: 'Contact requests', icon: Inbox, permission: 'contact.read' },
 ];
