@@ -321,11 +321,12 @@ fun MultiTryOnResultsPage(
             )
         }
 
-        if (galleryStartIndex != null && completedUrls.isNotEmpty()) {
+        val startIndex = galleryStartIndex
+        if (startIndex != null && completedUrls.isNotEmpty()) {
             ZoomableImageGallery(
                 images = completedUrls,
                 jobIds = completedJobIds,
-                currentIndex = galleryStartIndex!!.coerceIn(0, completedUrls.lastIndex),
+                currentIndex = startIndex.coerceIn(0, completedUrls.lastIndex),
                 onIndexChange = { galleryStartIndex = it },
                 onClose = { galleryStartIndex = null },
                 statusBarH = statusBarH,
