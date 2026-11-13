@@ -1,6 +1,6 @@
 'use client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CreditCard, LogOut, Undo2, Users } from 'lucide-react';
+import { CreditCard, Inbox, LogOut, PauseCircle, Undo2, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -23,6 +23,13 @@ const NAV = [
     icon: Undo2,
     permission: 'credits.read',
   },
+  {
+    href: '/hq/held-batches',
+    label: 'Held batches',
+    icon: PauseCircle,
+    permission: 'held_jobs.manage',
+  },
+  { href: '/hq/contacts', label: 'Contact requests', icon: Inbox, permission: 'contact.read' },
 ];
 
 const pill: React.CSSProperties = {
@@ -147,7 +154,7 @@ function Frame({ children }: { children: React.ReactNode }) {
       {/* Phone width: the same bottom bar the retailer app uses. */}
       <nav
         aria-label="Console"
-        className="fixed bottom-0 left-0 right-0 z-40 flex h-[var(--mw-nav-h)] justify-around md:hidden"
+        className="fixed bottom-0 left-0 right-0 z-40 flex h-[var(--mw-nav-h)] justify-around overflow-x-auto md:hidden"
         style={{ background: C.navbar, borderTop: `1px solid ${C.border}` }}
       >
         {nav.map(({ href, label, icon: Icon }) => (
