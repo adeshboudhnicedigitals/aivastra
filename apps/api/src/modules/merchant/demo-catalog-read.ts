@@ -3,6 +3,7 @@ import { schema } from '@aivastra/db';
 import { and, asc, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { catalogSearchCondition } from './catalog-search.js';
 
 /**
  * Defaults to true so the Android app picks demo data up with no client change.
@@ -127,15 +128,12 @@ export async function loadDemoItems(
   if (opts.subcategoryId) {
     conditions.push(eq(schema.demoCatalogItems.subcategoryId, opts.subcategoryId));
   }
-  if (opts.search?.trim()) {
-    const pattern = `%${opts.search.trim()}%`;
-    conditions.push(
-      or(
-        ilike(schema.demoCatalogItems.label, pattern),
-        ilike(schema.demoCatalogItems.sku, pattern),
-      ),
-    );
-  }
+  conditions.push(
+    catalogSearchCondition(
+      [schema.demoCatalogItems.label, schema.demoCatalogItems.sku],
+      opts.search ?? '',
+    ),
+  );
 
   const rows = await app.db
     .select({ item: schema.demoCatalogItems })

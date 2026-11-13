@@ -474,4 +474,51 @@ describe('merchant catalog', () => {
     await expect(app.storage.headObject(second.r2Key)).rejects.toThrow();
     await expect(app.storage.headObject(secondThumb.r2Key)).rejects.toThrow();
   });
+  it('searches word by word, in any order, across label and SKU', async () => {
+    const merchant = await createMerchant(app, 'search-merchant@example.com');
+    const auth = await merchantAuthHeader(merchant.userId);
+    const garmentType = await seedGarmentType(app, 'men');
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'men', name: 'Shirts', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const labels: Array<[string, string]> = [
+      ['Cotton Shirt - Red', 'SH-1'],
+      ['Red Silk Shirt', 'SH-2'],
+      ['Blue Cotton Shirt', 'SH-3'],
+      ['Red Trousers', 'TR-1'],
+    ];
+    await app.db.insert(schema.merchantCatalogItems).values(
+      labels.map(([label, sku]) => ({
+        merchantId: merchant.id,
+        subcategoryId,
+        label,
+        sku,
+        actualPricePaise: 100,
+        offerPricePaise: 100,
+        r2Key: `k/${sku}`,
+        thumbnailKey: `t/${sku}`,
+      })),
+    );
+
+    const search = async (q: string) => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/merchant/catalog?search=${encodeURIComponent(q)}`,
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+      return (res.json() as { items: Array<{ label: string }> }).items.map((i) => i.label).sort();
+    };
+
+    expect(await search('red shirt')).toEqual(['Cotton Shirt - Red', 'Red Silk Shirt']);
+    expect(await search('red')).toEqual(['Cotton Shirt - Red', 'Red Silk Shirt', 'Red Trousers']);
+    expect(await search('  RED   sh-2 ')).toEqual(['Red Silk Shirt']);
+    expect(await search('green shirt')).toEqual([]);
+    expect(await search('100%')).toEqual([]);
+  });
 });
