@@ -88,7 +88,9 @@ import aivastra.nice.interactive.data.models.UserPlan
 import aivastra.nice.interactive.data.repository.MerchantResult
 import aivastra.nice.interactive.data.repository.UserRepository
 import aivastra.nice.interactive.data.session.SessionManager
+import aivastra.nice.interactive.utils.CreditAlert
 import aivastra.nice.interactive.utils.CreditBalanceTracker
+import aivastra.nice.interactive.ui.components.CreditAlertDialog
 import aivastra.nice.interactive.ui.components.AppDialog
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.ButtonGradient
@@ -160,6 +162,10 @@ fun CategorySelectionPage(
     var plan by remember { mutableStateOf<PlanSummary?>(null) }
     // endAt of a monthly plan that has ended and not yet been acknowledged on this device.
     var endedPlanAt by remember { mutableStateOf<String?>(null) }
+    // A monthly plan inside its 7-day / 3-day pre-expiry window whose notice isn't acknowledged yet.
+    var expiringPlan by remember { mutableStateOf<UserPlan?>(null) }
+    // Low / zero balance on a credits plan, shown on open for users who never "cross" a threshold.
+    var homeCreditAlert by remember { mutableStateOf<CreditAlert?>(null) }
     LaunchedEffect(Unit) {
         val summary = PlanRepository().getSummary()
         plan = summary
@@ -171,6 +177,16 @@ fun CategorySelectionPage(
                 !SessionManager.hasAcknowledgedPlanEnd(monthly.endAt)
             ) {
                 endedPlanAt = monthly.endAt
+            }
+            // Credits-plan users only: an in-force monthly plan doesn't spend credits.
+            if (monthly?.isInForce != true) {
+                homeCreditAlert = CreditBalanceTracker.alertOnOpen(summary.balance)
+            }
+            val stage = monthly?.reminderStage
+            if (stage != null && monthly.endAt != null &&
+                !SessionManager.hasAcknowledgedPlanReminder(stage.name, monthly.endAt)
+            ) {
+                expiringPlan = monthly
             }
         }
     }
@@ -518,6 +534,33 @@ fun CategorySelectionPage(
                         endedPlanAt = null
                     }
                 )
+            }
+
+            // Shown only when the "plan ended" popup isn't, so two dialogs never stack.
+            expiringPlan?.takeIf { endedPlanAt == null }?.let { expiring ->
+                val days = expiring.daysRemaining ?: 0
+                val stage = expiring.reminderStage
+                val endAt = expiring.endAt
+                val ack = {
+                    if (stage != null && endAt != null) {
+                        SessionManager.acknowledgePlanReminder(stage.name, endAt)
+                    }
+                    expiringPlan = null
+                }
+                AppDialog(
+                    title = "Your monthly plan ends in $days day${if (days == 1) "" else "s"}",
+                    message = "Your monthly plan is active until ${expiring.endDate ?: "the scheduled date"}. After that, new try-ons will use credits from your account balance. Contact us if you'd like to renew early.",
+                    icon = Icons.Default.Info,
+                    confirmText = "Got it",
+                    cancelText = null,
+                    onConfirm = ack,
+                    onDismiss = ack
+                )
+            }
+
+            // Lowest priority of the three plan popups, so they never stack.
+            homeCreditAlert?.takeIf { endedPlanAt == null && expiringPlan == null }?.let { level ->
+                CreditAlertDialog(level, plan?.balance ?: 0, onDismiss = { homeCreditAlert = null })
             }
 
             // ── Logout dialog ───────────────────────────────────────────────
