@@ -1,3 +1,18 @@
+# 2026-11-13 — Insights CSV export (local, not committed)
+
+- **Done:** "Export CSV" on three Insights sections (retailer and console): summary (funnel + cart abandonment + reliability/cost), lost demand (items,
+  then size and colour rows tagged by kind), out of stock. Built in the browser from the data already on screen (`lib/csv.ts`), so a file always equals
+  what the screen shows for that range and branch, and no API route was added. Text cells starting `= + - @` are prefixed with `'` so a merchant-typed
+  item name cannot run as a spreadsheet formula; UTF-8 BOM for Excel.
+- **Not done:** no audit row (unlike the customer export: these are aggregates, no personal data). Lists are capped at the screen's top 20, so the file is too. Not checked in a browser.
+
+# 2026-11-13 — Insights date compare (local, not committed)
+
+- **Done:** funnel and reliability KPI cards on Insights (retailer and console) show "vs. previous period" using the existing `previousRange`
+  (equally long run of days before the range). No API change: the client fetches the same endpoints for the previous window. Counts show % change;
+  failure rate shows percentage points; failure rate, wait and credits per unit treat a drop as good (`lib/delta.ts`, unit-tested).
+- **Not done:** lost-demand and out-of-stock tables have no compare (per-item lists). Not checked in a browser yet. Doubles the funnel and reliability requests.
+
 # 2026-11-13 — Staff-role browser pass (local, not committed)
 
 - **Seed added (kept):** `wf-staff@example.test` (password `Browserpass1`), staff at branch "WF Annex" with 3 sessions there; a second open cart `WFCARTQ3` at "WF Main".

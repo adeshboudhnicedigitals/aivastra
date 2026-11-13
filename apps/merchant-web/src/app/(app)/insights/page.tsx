@@ -8,7 +8,7 @@ import { C } from '@/components/tokens';
 import { PremiumSelect } from '@/components/ui/premium-select';
 import { ANALYTICS_TZ } from '@/lib/analytics';
 import { apiFetch } from '@/lib/api';
-import { isValidCustomRange, rangeFor } from '@/lib/date-range';
+import { isValidCustomRange, previousRange, rangeFor } from '@/lib/date-range';
 import {
   useInsightsFunnel,
   useInsightsReliability,
@@ -43,6 +43,9 @@ export default function InsightsPage() {
   const lost = useLostDemand(range, branch);
   const oos = useOutOfStock(range, branch);
   const rel = useInsightsReliability(range, branch);
+  const prev = range ? previousRange(range) : null;
+  const prevFunnel = useInsightsFunnel(prev, branch);
+  const prevRel = useInsightsReliability(prev, branch);
   const f = funnel.data;
   const r = rel.data;
   const loadingF = funnel.isPending && range !== null;
@@ -76,7 +79,14 @@ export default function InsightsPage() {
         )}
       </div>
 
-      <InsightsSections funnel={funnel} lost={lost} oos={oos} rel={rel} />
+      <InsightsSections
+        funnel={funnel}
+        lost={lost}
+        oos={oos}
+        rel={rel}
+        prevFunnel={prevFunnel.data}
+        prevRel={prevRel.data}
+      />
     </>
   );
 }

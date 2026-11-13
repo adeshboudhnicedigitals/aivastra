@@ -12,7 +12,7 @@ import { InsightsSections } from '@/components/insights/InsightsSections';
 import { C } from '@/components/tokens';
 import { PremiumSelect } from '@/components/ui/premium-select';
 import { ANALYTICS_TZ } from '@/lib/analytics';
-import { isValidCustomRange, rangeFor } from '@/lib/date-range';
+import { isValidCustomRange, previousRange, rangeFor } from '@/lib/date-range';
 import { hqFetch } from '@/lib/hq-api';
 
 const STALE_MS = 30_000;
@@ -58,6 +58,14 @@ export function AccountInsights({
   const lost = useInsight<LostDemandResponse>(merchantId, 'lost-demand', range, branchId);
   const oos = useInsight<OutOfStockResponse>(merchantId, 'out-of-stock', range, branchId);
   const rel = useInsight<InsightsReliabilityResponse>(merchantId, 'reliability', range, branchId);
+  const prev = range ? previousRange(range) : null;
+  const prevFunnel = useInsight<InsightsFunnelResponse>(merchantId, 'funnel', prev, branchId);
+  const prevRel = useInsight<InsightsReliabilityResponse>(
+    merchantId,
+    'reliability',
+    prev,
+    branchId,
+  );
 
   return (
     <section
@@ -90,7 +98,14 @@ export function AccountInsights({
           />
         )}
       </div>
-      <InsightsSections funnel={funnel} lost={lost} oos={oos} rel={rel} />
+      <InsightsSections
+        funnel={funnel}
+        lost={lost}
+        oos={oos}
+        rel={rel}
+        prevFunnel={prevFunnel.data}
+        prevRel={prevRel.data}
+      />
     </section>
   );
 }

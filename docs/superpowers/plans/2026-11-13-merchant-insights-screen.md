@@ -87,7 +87,7 @@ Order: T1 → T2 → (T3, T4, T5 in parallel) → T6 → T7 → T9.
 
 ## Not in scope
 
-Date compare; drill-down to session; CSV export; scheduled reports; revenue and average order
+Drill-down to session; CSV export; scheduled reports; revenue and average order
 value (cart × price estimate, own plan); customer and WhatsApp analytics; alerts; anything needing
 a POS.
 
