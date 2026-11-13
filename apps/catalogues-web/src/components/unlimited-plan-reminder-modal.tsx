@@ -57,15 +57,16 @@ export function UnlimitedPlanReminderModal({
 
   if (!open || !stage) return null;
 
-  const accent = stage === 'expired' ? C.danger : stage === 'three_day' ? C.danger : C.amber;
+  // Informational, not an error: an ended plan just means credits are used again.
+  const accent = stage === 'three_day' ? C.danger : C.amber;
   const heading =
     stage === 'expired'
-      ? 'Your monthly plan has expired'
+      ? 'Your monthly plan has ended'
       : `Your monthly plan ends in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`;
   const body =
     stage === 'expired'
-      ? `Your monthly plan expired on ${endDateLabel ?? 'the scheduled date'}. Your account is now using your regular credit balance.`
-      : `Your monthly plan is active until ${endDateLabel ?? 'the scheduled date'}. After that, your account goes back to using your regular credit balance.`;
+      ? `Your monthly plan ended on ${endDateLabel ?? 'the scheduled date'}. New merchant try-ons will now use credits from your account balance, like all your other services. Contact us if you'd like to renew the plan.`
+      : `Your monthly plan is active until ${endDateLabel ?? 'the scheduled date'}. After that, new merchant try-ons will use credits from your account balance.`;
   const ctaLabel = stage === 'expired' ? 'Renew Now' : 'Renew Early';
 
   return (

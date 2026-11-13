@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import aivastra.nice.interactive.R
+import aivastra.nice.interactive.ui.components.CreditAlertGate
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.PoppinsFamily
 import aivastra.nice.interactive.utils.sdp
@@ -87,6 +88,10 @@ fun TryOnResultPage(
     val coroutineScope = rememberCoroutineScope()
 
     BackHandler(onBack = onBack)
+
+    // Low-credit / out-of-credit heads-up, re-checked for each new result. Skipped in
+    // previews, which have no session or network.
+    if (!isPreview) CreditAlertGate(refreshKey = resultImageUrl to sessionResults.size)
 
     // Pinch-to-zoom / pan / double-tap-to-reset on the result image. Pan is clamped to the
     // overflow the current zoom level actually produces (half the extra scaled size in each

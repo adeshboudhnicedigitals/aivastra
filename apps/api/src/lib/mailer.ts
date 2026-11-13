@@ -259,6 +259,53 @@ export async function sendShopifyWelcomeEmail(
   });
 }
 
+function shopifyInstallNotifyHtml(p: ShopifyInstallNotice): string {
+  const row = (label: string, value?: string | null) =>
+    value?.trim()
+      ? `<tr><td style="padding:6px 12px 6px 0;font-size:14px;color:#888;white-space:nowrap;vertical-align:top;">${label}</td><td style="padding:6px 0;font-size:14px;color:#1a1a1a;">${escapeHtml(value)}</td></tr>`
+      : '';
+  return emailShell(`
+    ${banner('New Shopify store installed 🛍️')}
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">A new shop just installed the Ai Vastra app.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+      ${row('Shop', p.shopName)}
+      ${row('Domain', p.shopDomain)}
+      ${row('Storefront', p.primaryDomain)}
+      ${row('Owner', p.ownerName)}
+      ${row('Email', p.email)}
+      ${row('Phone', p.phone)}
+      ${row('Timezone', p.timezone)}
+      ${row('Plan', p.partnerDevelopment ? 'Partner development store (test)' : 'Live store')}
+    </table>
+    ${signOff()}
+  `);
+}
+
+export type ShopifyInstallNotice = {
+  shopName: string | null;
+  shopDomain: string;
+  primaryDomain?: string | null;
+  ownerName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  timezone?: string | null;
+  partnerDevelopment: boolean;
+};
+
+export async function sendShopifyInstallNotifyEmail(
+  apiKey: string,
+  from: string,
+  to: string[],
+  notice: ShopifyInstallNotice,
+): Promise<void> {
+  await send(apiKey, {
+    from,
+    to,
+    subject: `New Shopify install — ${notice.shopName?.trim() || notice.shopDomain}`,
+    html: shopifyInstallNotifyHtml(notice),
+  });
+}
+
 export async function sendPaymentReceiptEmail(
   apiKey: string,
   from: string,
@@ -578,16 +625,15 @@ function unlimitedPlanReminderHtml(p: {
   daysRemaining: number;
   name?: string | null;
 }): string {
-  const accent =
-    p.stage === 'expired' ? '#7c2d12' : p.stage === 'three_day' ? '#b42318' : '#b26a00';
+  const accent = p.stage === 'three_day' ? '#b42318' : '#b26a00';
   const heading =
     p.stage === 'expired'
-      ? 'Your monthly plan has expired'
+      ? 'Your monthly plan has ended'
       : `Your monthly plan ends in ${p.daysRemaining} day${p.daysRemaining === 1 ? '' : 's'}`;
   const bodyText =
     p.stage === 'expired'
-      ? `Your AI Vastra monthly plan expired on <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. Your account is now using your regular credit balance.`
-      : `Your AI Vastra monthly plan is active until <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. After that, your account goes back to using your regular credit balance.`;
+      ? `Your AI Vastra monthly plan ended on <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. New merchant try-ons will now use credits from your account balance, like all your other services.`
+      : `Your AI Vastra monthly plan is active until <strong style="color:#1a1a1a;">${p.endDateLabel}</strong>. After that, new merchant try-ons will use credits from your account balance.`;
   const ctaText =
     p.stage === 'expired'
       ? 'Reach out to us to renew your plan.'
@@ -620,7 +666,7 @@ export async function sendUnlimitedPlanReminderEmail(
 ): Promise<void> {
   const subject =
     params.stage === 'expired'
-      ? 'Your monthly plan has expired'
+      ? 'Your monthly plan has ended'
       : `Your monthly plan ends in ${params.daysRemaining} day${params.daysRemaining === 1 ? '' : 's'}`;
 
   await send(apiKey, { from, to, subject, html: unlimitedPlanReminderHtml(params) });

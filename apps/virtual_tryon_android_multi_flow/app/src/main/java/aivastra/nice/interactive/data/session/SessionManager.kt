@@ -23,6 +23,8 @@ object SessionManager {
     private const val USER_NAME = "user_name"
     private const val USER_LOGO_URL = "user_logo_url"
     private const val USER_LOADING_VIDEO_URL = "user_loading_video_url"
+    private const val PLAN_ENDED_ACK = "plan_ended_ack"
+    private const val PLAN_REMINDER_ACK = "plan_reminder_ack"
     private const val EXPIRY_SKEW_SECONDS = 30L
 
     private lateinit var appContext: Context
@@ -35,6 +37,25 @@ object SessionManager {
 
     private val preferences
         get() = if (::appContext.isInitialized) appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) else null
+
+    /** True once this account has dismissed the "monthly plan ended" notice for the plan ending at [endAt]. */
+    fun hasAcknowledgedPlanEnd(endAt: String): Boolean =
+        preferences?.getString("$PLAN_ENDED_ACK:$userId", null) == endAt
+
+    fun acknowledgePlanEnd(endAt: String) {
+        preferences?.edit()?.putString("$PLAN_ENDED_ACK:$userId", endAt)?.apply()
+    }
+
+    /**
+     * Pre-expiry reminders are acknowledged per stage and plan end date, so the 7-day notice
+     * doesn't suppress the 3-day one, and a renewed plan (new end date) reminds afresh.
+     */
+    fun hasAcknowledgedPlanReminder(stage: String, endAt: String): Boolean =
+        preferences?.getString("$PLAN_REMINDER_ACK:$userId:$stage", null) == endAt
+
+    fun acknowledgePlanReminder(stage: String, endAt: String) {
+        preferences?.edit()?.putString("$PLAN_REMINDER_ACK:$userId:$stage", endAt)?.apply()
+    }
 
     val accessToken: String?
         get() = preferences?.getString(ACCESS_TOKEN, null)
