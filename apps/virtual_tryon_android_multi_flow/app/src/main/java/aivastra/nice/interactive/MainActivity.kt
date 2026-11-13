@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.view.WindowCompat
 import androidx.navigation.compose.rememberNavController
+import aivastra.nice.interactive.camera.kioskReversePortraitOrientation
 import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.navigation.AppNavGraph
 import aivastra.nice.interactive.ui.components.NoInternetBanner
@@ -23,6 +24,24 @@ import aivastra.nice.interactive.update.InAppUpdateChecker
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Overrides the manifest's `portrait` only on the natively-landscape kiosk panel whose
+        // system rotation is 90, where plain portrait would flip the screen 180 degrees.
+        // The camera enumeration behind it blocked the main thread for hundreds of ms at launch, so
+        // launch applies the last computed answer and a background pass refreshes it.
+        val prefs = getSharedPreferences("orientation_cache", MODE_PRIVATE)
+        val cached = prefs.getInt("kiosk_orientation", NO_ORIENTATION)
+        if (cached != NO_ORIENTATION) requestedOrientation = cached
+        Thread {
+            val fresh = kioskReversePortraitOrientation(applicationContext) ?: NO_ORIENTATION
+            prefs.edit().putInt("kiosk_orientation", fresh).apply()
+            if (fresh != cached) runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    requestedOrientation = if (fresh == NO_ORIENTATION) {
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    } else fresh
+                }
+            }
+        }.start()
         window.setBackgroundDrawableResource(android.R.color.black)
         SessionManager.initialize(applicationContext)
 
@@ -58,5 +77,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private companion object {
+        const val NO_ORIENTATION = -99
     }
 }

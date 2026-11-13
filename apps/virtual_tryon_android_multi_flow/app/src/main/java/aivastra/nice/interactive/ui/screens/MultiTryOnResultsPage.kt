@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import aivastra.nice.interactive.R
 import aivastra.nice.interactive.data.models.CatalogProduct
+import aivastra.nice.interactive.ui.components.CreditAlertGate
 import aivastra.nice.interactive.ui.components.AppHeaderLogo
 import aivastra.nice.interactive.ui.components.ResultLogoBadge
 import aivastra.nice.interactive.ui.components.AppToast
@@ -141,6 +142,10 @@ fun MultiTryOnResultsPage(
         if (isAnyInProgress) showLeaveWarningToast = true else showExitDialog = true
     }
     BackHandler(onBack = attemptLeave)
+
+    // Low-credit / out-of-credit heads-up. Each finished garment deducts credits, so re-check
+    // as the completed count grows; the tracker only alerts when a threshold is crossed.
+    if (!isPreview) CreditAlertGate(refreshKey = completedCount)
 
     // Newest generation first. The view model appends in request order, so the grid and the
     // gallery (swipe order) both read from this reversed copy to stay in step with each other.
@@ -316,11 +321,12 @@ fun MultiTryOnResultsPage(
             )
         }
 
-        if (galleryStartIndex != null && completedUrls.isNotEmpty()) {
+        val startIndex = galleryStartIndex
+        if (startIndex != null && completedUrls.isNotEmpty()) {
             ZoomableImageGallery(
                 images = completedUrls,
                 jobIds = completedJobIds,
-                currentIndex = galleryStartIndex!!.coerceIn(0, completedUrls.lastIndex),
+                currentIndex = startIndex.coerceIn(0, completedUrls.lastIndex),
                 onIndexChange = { galleryStartIndex = it },
                 onClose = { galleryStartIndex = null },
                 statusBarH = statusBarH,

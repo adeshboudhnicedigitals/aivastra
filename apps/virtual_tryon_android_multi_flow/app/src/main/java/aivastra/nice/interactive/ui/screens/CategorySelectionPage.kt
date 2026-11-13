@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.DropdownMenu
@@ -87,6 +88,7 @@ import aivastra.nice.interactive.data.models.UserPlan
 import aivastra.nice.interactive.data.repository.MerchantResult
 import aivastra.nice.interactive.data.repository.UserRepository
 import aivastra.nice.interactive.data.session.SessionManager
+import aivastra.nice.interactive.utils.CreditBalanceTracker
 import aivastra.nice.interactive.ui.components.AppDialog
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.ButtonGradient
@@ -156,7 +158,22 @@ fun CategorySelectionPage(
     // leaves it null and the card hidden — an ancillary widget shouldn't put an error over
     // the whole screen, nor claim "No plan" because of a flaky connection.
     var plan by remember { mutableStateOf<PlanSummary?>(null) }
-    LaunchedEffect(Unit) { plan = PlanRepository().getSummary() }
+    // endAt of a monthly plan that has ended and not yet been acknowledged on this device.
+    var endedPlanAt by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val summary = PlanRepository().getSummary()
+        plan = summary
+        if (summary != null) {
+            // Baseline for the result screens' low-credit check.
+            CreditBalanceTracker.record(summary.balance)
+            val monthly = summary.monthly
+            if (monthly?.status == "expired" && monthly.endAt != null &&
+                !SessionManager.hasAcknowledgedPlanEnd(monthly.endAt)
+            ) {
+                endedPlanAt = monthly.endAt
+            }
+        }
+    }
 
     // ── Compute dynamic card height from actual screen space ───────────────
     // BoxWithConstraints gives us real maxHeight at composition time, enabling
@@ -376,33 +393,14 @@ fun CategorySelectionPage(
                         Spacer(Modifier.height(sdp(R.dimen._12sdp)))
 
                         // ── Title ───────────────────────────────────────────
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            // Quick try-on sits beside the heading: one camera photo, no category.
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
-                                    .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
-                                    .clickable(onClick = onQuickTryOnClick)
-                                    .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._8sdp)),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    painterResource(R.drawable.camera_icon_),
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(sdp(R.dimen._16sdp))
-                                )
-                                Spacer(Modifier.width(sdp(R.dimen._6sdp)))
-                                Text(
-                                    "Quick Try-On",
-                                    color = Color.White,
-                                    fontSize = ssp(R.dimen._12ssp),
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = PoppinsFamily
-                                )
-                            }
-                            Column {
+                        // A Row (not an overlaid Box): on phone widths the heading is wider than
+                        // the space left of the button, so the heading must take only the
+                        // remaining width and wrap instead of sliding under the button.
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = buildAnnotatedString {
                                         withStyle(SpanStyle(color = Color.White)) { append("Choose Your ") }
@@ -425,6 +423,32 @@ fun CategorySelectionPage(
                                     modifier = Modifier
                                         .size(width = sdp(R.dimen._40sdp), height = 2.dp)
                                         .background(Brush.horizontalGradient(listOf(ButtonGradientCenter, Color.Transparent)))
+                                )
+                            }
+                            Spacer(Modifier.width(sdp(R.dimen._8sdp)))
+                            // Quick try-on sits beside the heading: one camera photo, no category.
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
+                                    .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
+                                    .clickable(onClick = onQuickTryOnClick)
+                                    .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._8sdp)),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.camera_icon_),
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(sdp(R.dimen._16sdp))
+                                )
+                                Spacer(Modifier.width(sdp(R.dimen._6sdp)))
+                                Text(
+                                    "Quick Try-On",
+                                    color = Color.White,
+                                    fontSize = ssp(R.dimen._12ssp),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = PoppinsFamily,
+                                    maxLines = 1
                                 )
                             }
                         }
@@ -476,6 +500,24 @@ fun CategorySelectionPage(
                         }
                     }
                 }
+            }
+
+            endedPlanAt?.let { endAt ->
+                AppDialog(
+                    title = "Your monthly plan has ended",
+                    message = "New try-ons will now use credits from your account balance, like your other services. Contact us if you'd like to renew the plan.",
+                    icon = Icons.Default.Info,
+                    confirmText = "Got it",
+                    cancelText = null,
+                    onConfirm = {
+                        SessionManager.acknowledgePlanEnd(endAt)
+                        endedPlanAt = null
+                    },
+                    onDismiss = {
+                        SessionManager.acknowledgePlanEnd(endAt)
+                        endedPlanAt = null
+                    }
+                )
             }
 
             // ── Logout dialog ───────────────────────────────────────────────
