@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.DropdownMenu
@@ -87,6 +88,7 @@ import aivastra.nice.interactive.data.models.UserPlan
 import aivastra.nice.interactive.data.repository.MerchantResult
 import aivastra.nice.interactive.data.repository.UserRepository
 import aivastra.nice.interactive.data.session.SessionManager
+import aivastra.nice.interactive.utils.CreditBalanceTracker
 import aivastra.nice.interactive.ui.components.AppDialog
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
 import aivastra.nice.interactive.ui.theme.ButtonGradient
@@ -156,7 +158,22 @@ fun CategorySelectionPage(
     // leaves it null and the card hidden — an ancillary widget shouldn't put an error over
     // the whole screen, nor claim "No plan" because of a flaky connection.
     var plan by remember { mutableStateOf<PlanSummary?>(null) }
-    LaunchedEffect(Unit) { plan = PlanRepository().getSummary() }
+    // endAt of a monthly plan that has ended and not yet been acknowledged on this device.
+    var endedPlanAt by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val summary = PlanRepository().getSummary()
+        plan = summary
+        if (summary != null) {
+            // Baseline for the result screens' low-credit check.
+            CreditBalanceTracker.record(summary.balance)
+            val monthly = summary.monthly
+            if (monthly?.status == "expired" && monthly.endAt != null &&
+                !SessionManager.hasAcknowledgedPlanEnd(monthly.endAt)
+            ) {
+                endedPlanAt = monthly.endAt
+            }
+        }
+    }
 
     // ── Compute dynamic card height from actual screen space ───────────────
     // BoxWithConstraints gives us real maxHeight at composition time, enabling
@@ -485,6 +502,24 @@ fun CategorySelectionPage(
                     message = "Are you sure you want to log out?",
                     subMessage = "Logged in as: $userEmail",
                     icon = Icons.Default.ExitToApp,
+            endedPlanAt?.let { endAt ->
+                AppDialog(
+                    title = "Your monthly plan has ended",
+                    message = "New try-ons will now use credits from your account balance, like your other services. Contact us if you'd like to renew the plan.",
+                    icon = Icons.Default.Info,
+                    confirmText = "Got it",
+                    cancelText = null,
+                    onConfirm = {
+                        SessionManager.acknowledgePlanEnd(endAt)
+                        endedPlanAt = null
+                    },
+                    onDismiss = {
+                        SessionManager.acknowledgePlanEnd(endAt)
+                        endedPlanAt = null
+                    }
+                )
+            }
+
                     warningText = "You will need to sign in again to access your account.",
                     confirmText = "Yes, Logout",
                     cancelText = "Cancel",
