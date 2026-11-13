@@ -64,9 +64,16 @@ class MultiTryOnViewModel @JvmOverloads constructor(
         /** Most garments one customer session may try on: 5 on the picker + 5 via "Add more looks". */
         const val MAX_SESSION_GARMENTS = 10
 
+        // N garments poll in parallel from one IP, and the API rate-limits per IP (200/min), so
+        // the cadence is kept gentle: 10 jobs at 1s would be 600 req/min and trip 429s.
         private const val FAST_POLL_WINDOW_MS = 20_000L
-        private const val FAST_POLL_INTERVAL_MS = 1_000L
-        private const val STEADY_POLL_INTERVAL_MS = 2_000L
+        private const val FAST_POLL_INTERVAL_MS = 1_500L
+        private const val STEADY_POLL_INTERVAL_MS = 3_000L
+
+        // A failed status poll says nothing about the job — it keeps running server-side. Back off
+        // and keep asking instead of declaring it failed (which showed Retry on finished jobs).
+        private const val MAX_BACKOFF_INTERVAL_MS = 10_000L
+        private const val MAX_CONSECUTIVE_POLL_FAILURES = 40
     }
 
     fun startBatch(products: List<CatalogProduct>, customerPhotoKey: String) {
@@ -146,7 +153,12 @@ class MultiTryOnViewModel @JvmOverloads constructor(
         var consecutiveFailures = 0
 
         while (elapsedMs < timeoutMs) {
-            val pollIntervalMs = if (elapsedMs < FAST_POLL_WINDOW_MS) FAST_POLL_INTERVAL_MS else STEADY_POLL_INTERVAL_MS
+            val baseIntervalMs = if (elapsedMs < FAST_POLL_WINDOW_MS) FAST_POLL_INTERVAL_MS else STEADY_POLL_INTERVAL_MS
+            // Exponential backoff while polls are failing (429s, network blips), plus a little
+            // jitter so parallel items don't re-hit the API in lockstep.
+            val backoffIntervalMs = if (consecutiveFailures == 0) baseIntervalMs
+            else minOf(baseIntervalMs shl minOf(consecutiveFailures, 4), MAX_BACKOFF_INTERVAL_MS)
+            val pollIntervalMs = backoffIntervalMs + (0L..250L).random()
             delay(pollIntervalMs)
             elapsedMs += pollIntervalMs
 
@@ -198,7 +210,7 @@ class MultiTryOnViewModel @JvmOverloads constructor(
                 }
                 is TryOnResult.Failure -> {
                     consecutiveFailures++
-                    if (consecutiveFailures >= 10) {
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
                         updateItem(productId) {
                             it.copy(status = MultiTryOnItemStatus.FAILED, errorMessage = result.message)
                         }

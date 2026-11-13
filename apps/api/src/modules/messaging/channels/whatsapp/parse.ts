@@ -14,6 +14,8 @@ export interface ParsedInbound {
   from: string;
   profileName: string | null;
   content: InboundContent;
+  /** Meta's id of OUR number that received it (value.metadata); routes merchant channels. */
+  phoneNumberId?: string;
 }
 
 type Obj = Record<string, unknown>;
@@ -93,6 +95,7 @@ export function parseWebhook(body: unknown): ParsedInbound[] {
       const c = obj(change);
       if (c?.field !== 'messages') continue;
       const value = obj(c.value);
+      const phoneNumberId = str(obj(value?.metadata)?.phone_number_id);
       const names = new Map<string, string>();
       for (const contact of arr(value?.contacts)) {
         const k = obj(contact);
@@ -110,9 +113,22 @@ export function parseWebhook(body: unknown): ParsedInbound[] {
           from,
           profileName: names.get(from) ?? null,
           content: content(m),
+          ...(phoneNumberId ? { phoneNumberId } : {}),
         });
       }
     }
   }
   return out;
+}
+
+/** Every receiving phone_number_id in a webhook body (normally exactly one). Untrusted input. */
+export function receivingPhoneNumberIds(body: unknown): string[] {
+  const ids = new Set<string>();
+  for (const entry of arr(obj(body)?.entry)) {
+    for (const change of arr(obj(entry)?.changes)) {
+      const id = str(obj(obj(obj(change)?.value)?.metadata)?.phone_number_id);
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
 }

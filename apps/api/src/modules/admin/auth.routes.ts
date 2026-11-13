@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { hashRefresh, newRefreshToken, signAccess, verifyPassword } from '../auth/service.js';
 import { createAdminSessionTokens, parseDuration } from '../auth/tokens.js';
+import { mfaGate, mfaKey, signMfaToken } from './mfa.js';
 
 export async function adminAuthRoutes(app: FastifyInstance) {
   app.post(
@@ -28,6 +29,16 @@ export async function adminAuthRoutes(app: FastifyInstance) {
       if (!(await verifyPassword(admin.passwordHash, password)))
         throw new AppError('INVALID', 401, 'invalid credentials');
 
+      // Password is right; a second factor may still stand between this and a session. No cookie
+      // and no access token are issued until it passes (option B: see mfa.ts).
+      const gate = await mfaGate(app, user.id);
+      if (gate.kind !== 'none') {
+        mfaKey(app); // 503 rather than a silent skip when MFA is required but unconfigured
+        return reply.code(200).send({
+          mfaRequired: gate.kind,
+          mfaToken: await signMfaToken(app, user.id, gate.kind),
+        });
+      }
       return createAdminSessionTokens(app, user.id, reply, 200);
     },
   );

@@ -51,6 +51,41 @@ describe('GET /v1/merchant/me', () => {
     expect(body.used).toBe(150);
   });
 
+  it("reports an ended monthly plan as 'expired' and an active one as 'active'", async () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+    const meStatus = async (userId: string) => {
+      const token = await signAccess(secret, userId, { kind: 'access' }, '15m');
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/merchant/me',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      return (res.json() as { unlimitedPlan: { status: string } }).unlimitedPlan.status;
+    };
+
+    const ended = await createTestMerchant(app, { balance: 10 });
+    await app.db.insert(schema.unlimitedPlans).values({
+      userId: ended.userId,
+      startAt: new Date(Date.now() - 40 * DAY_MS),
+      endAt: new Date(Date.now() - DAY_MS),
+      grantedBy: ended.userId,
+    });
+    expect(await meStatus(ended.userId)).toBe('expired');
+
+    const running = await createTestMerchant(app, { balance: 10 });
+    await app.db.insert(schema.unlimitedPlans).values({
+      userId: running.userId,
+      startAt: new Date(Date.now() - DAY_MS),
+      endAt: new Date(Date.now() + 20 * DAY_MS),
+      grantedBy: running.userId,
+    });
+    expect(await meStatus(running.userId)).toBe('active');
+
+    const none = await createTestMerchant(app, { balance: 10 });
+    expect(await meStatus(none.userId)).toBe('none');
+  });
+
   it('rejects a non-merchant account', async () => {
     const secret = new TextEncoder().encode(app.env.JWT_SECRET);
     const [user] = await app.db

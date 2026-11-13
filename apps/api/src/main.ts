@@ -2,12 +2,16 @@ import { setDefaultResultOrder } from 'node:dns';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
+import { startAnalyticsRollup } from './modules/analytics/rollup.js';
 import { hashPassword } from './modules/auth/service.js';
+import { startCartAbandonSweeper } from './modules/cart/routes.js';
 import { startComparisonCollector } from './modules/comparison/collector.js';
 import { startComparisonDispatcher } from './modules/comparison/dispatcher-tick.js';
 import { startComparisonRetention } from './modules/comparison/retention.js';
 import { startUserLowCreditAlertScheduler } from './modules/credits/low-credit-alert-scheduler.js';
 import { startUnlimitedPlanReminderScheduler } from './modules/credits/unlimited-plan-scheduler.js';
+import { startCrmInboundConsumer } from './modules/crm/consumer.js';
+import { startCrmRetention } from './modules/crm/retention.js';
 import { startInstoreSessionSweeper } from './modules/device/session-sweeper.js';
 import { startFleetEvaluator } from './modules/fleet/evaluator.js';
 import { startFleetRetention } from './modules/fleet/retention.js';
@@ -52,6 +56,8 @@ startCollectionResyncScheduler(app);
 startProductResyncScheduler(app);
 startUploadSweeper(app);
 startInstoreSessionSweeper(app);
+startAnalyticsRollup(app);
+startCartAbandonSweeper(app);
 startRecognitionSweeper(app);
 startFleetRetention(app);
 startFleetEvaluator(app);
@@ -82,6 +88,15 @@ if (app.env.MESSAGING_WHATSAPP_ENABLED === true) {
     );
   }
 }
+
+// CRM phase 2: shoppers writing to a brand's own WhatsApp number (mode A). Off unless
+// CRM_IDENTIFY_ENABLED is the literal 'true' and the data key is set.
+if (app.env.CRM_IDENTIFY_ENABLED === true && app.env.CRM_DATA_KEY) {
+  startCrmInboundConsumer(app);
+}
+// Profile retention runs whenever the key exists, flag or not: data captured while the feature
+// was on must still expire after it is switched off.
+if (app.env.CRM_DATA_KEY) startCrmRetention(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db

@@ -22,7 +22,7 @@ describe('GET /admin/me', () => {
   });
 
   it('returns 403 for non-admin user', async () => {
-    const { token } = await createVerifiedUserToken(app, 'plain@x.com');
+    const { token } = await createVerifiedUserToken(app, 'plain@x.com', { audience: 'admin' });
     const res = await app.inject({
       method: 'GET',
       url: '/admin/me',
@@ -32,7 +32,9 @@ describe('GET /admin/me', () => {
   });
 
   it('returns userId, email, and role for SUPER_ADMIN', async () => {
-    const { token, userId } = await createVerifiedUserToken(app, 'admin@x.com');
+    const { token, userId } = await createVerifiedUserToken(app, 'admin@x.com', {
+      audience: 'admin',
+    });
     await app.db.insert(schema.adminUsers).values({ userId, role: 'SUPER_ADMIN' });
     const res = await app.inject({
       method: 'GET',
@@ -48,7 +50,9 @@ describe('GET /admin/me', () => {
   });
 
   it('returns 200 for MODERATOR role', async () => {
-    const { token, userId } = await createVerifiedUserToken(app, 'mod@x.com');
+    const { token, userId } = await createVerifiedUserToken(app, 'mod@x.com', {
+      audience: 'admin',
+    });
     await app.db.insert(schema.adminUsers).values({ userId, role: 'MODERATOR' });
     const res = await app.inject({
       method: 'GET',

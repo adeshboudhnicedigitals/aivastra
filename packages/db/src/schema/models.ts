@@ -114,6 +114,21 @@ export const sampleVideos = pgTable(
 );
 
 // e.g. { genderSlug: 'men', slug: 'fullsleeveshirt', label: 'Full Sleeve Shirt' }
+// CRM phase 3 (spec §6.2): standard size lists curated by AiVastra and attached to garment
+// types, so a merchant picks "M" from the same list every brand uses and size analytics group
+// cleanly. Free-text sizes live on the variant (is_custom), never here.
+export const sizeSets = pgTable('size_sets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Stable identifier for seeds and imports, e.g. 'tops-alpha'.
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  // Display order is the array order: XS before S before M.
+  sizes: jsonb('sizes').$type<string[]>().notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const garmentSubcategories = pgTable('garment_subcategories', {
   id: uuid('id').primaryKey().defaultRandom(),
   genderSlug: text('gender_slug').notNull(),
@@ -172,6 +187,9 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
     () => workflowTemplates.id,
     { onDelete: 'set null' },
   ),
+  // CRM phase 3: the standard sizes offered for products of this garment type. Null = the
+  // merchant types sizes freely.
+  sizeSetId: uuid('size_set_id').references(() => sizeSets.id, { onDelete: 'set null' }),
   // Step-1 workflow: drapes the uploaded garment onto the selected face, once per job.
   mannequinWorkflowTemplateId: uuid('mannequin_workflow_template_id').references(
     () => workflowTemplates.id,

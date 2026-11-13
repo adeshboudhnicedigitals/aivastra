@@ -255,7 +255,7 @@ Unit tests for the entitlement function with the subscription module stubbed.
 1. Org model — branches, staff, AiVastra admin screens for limits and settings
 2. Devices + in-store sessions + entitlement (credits only)
 3. Merchant Web — auth, dashboards, staff/branch/device management, moved `/tryon`
-4. Merchant Android — kiosk OTP flow, Sales Assistant login, "Sold"
+4. Merchant Android — kiosk OTP flow, Sales Assistant login, "Sold" *(2026-11-12: device model, sessions, Sales Assistant login, Wishlist/Sold and event upload built in the test app `apps/virtual_tryon_android_merchant`; shopper identification moved to the CRM spec §4.1/§5)*
 5. Shopper page + WhatsApp link delivery
 6. Plug in the subscription module when it ships
 7. Later: POS connectors (sales source of truth, then reserve-in-store)

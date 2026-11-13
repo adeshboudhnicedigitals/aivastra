@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useSession } from '@/components/session-provider';
+import { CustomerDataSettings } from '@/components/settings/CustomerDataSettings';
 import { C } from '@/components/tokens';
 import { ListState } from '@/components/ui/state';
 import { useToast } from '@/components/ui/toast';
@@ -214,6 +215,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <StoreLinkForm key={b.storeUrl ?? ''} brand={b} />
+            <CustomerDataSettings />
           </>
         )}
       </ListState>

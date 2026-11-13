@@ -28,9 +28,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {/* Apply the saved theme before first paint to avoid a flash. */}
         <script
           nonce={nonce}
+          // The browser blanks the nonce attribute after parsing, so React sees a harmless
+          // server/client difference on this one tag (the CSP nonce).
+          suppressHydrationWarning
           // biome-ignore lint/security/noDangerouslySetInnerHtml: theme flash prevention requires an inline script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('theme');var d=t==='dark'||(!t&&location.pathname.indexOf('/hq')>=0&&matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
           }}
         />
       </head>

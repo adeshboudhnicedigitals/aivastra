@@ -6,12 +6,24 @@ import { and, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
 import { getActiveUnlimitedPlan } from './unlimited-plan.js';
 
-export async function atomicDeduct(db: DB, userId: string, amount: number, jobId: string) {
+/**
+ * `unlimitedPlan` is opt-in: the monthly plan covers merchant try-on only, so
+ * only that path (atomicMerchantDeduct) passes true. Every other job type —
+ * studio, catalog, saree, Shopify, developer API — charges credits even for a
+ * user whose plan is active.
+ */
+export async function atomicDeduct(
+  db: DB,
+  userId: string,
+  amount: number,
+  jobId: string,
+  opts: { unlimitedPlan?: boolean } = {},
+) {
   const { balance, deducted } = await db.transaction(async (tx) => {
     // A user on an active unlimited plan spends nothing — but a zero-delta
     // ledger row is still written so "every job writes a ledger row" stays an
     // invariant and admins can audit unlimited-plan usage per job.
-    const activePlan = await getActiveUnlimitedPlan(tx, userId);
+    const activePlan = opts.unlimitedPlan ? await getActiveUnlimitedPlan(tx, userId) : null;
     if (activePlan) {
       await tx
         .insert(schema.creditLedger)

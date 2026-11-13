@@ -25,6 +25,7 @@ describe('admin workflow comparisons list and detail', () => {
     const { token } = await createVerifiedUserToken(
       app,
       `comparison-reader-${randomUUID()}@x.test`,
+      { audience: 'admin' },
     );
     customerHeaders = { authorization: `Bearer ${token}` };
     const [sourceTemplate] = await app.db

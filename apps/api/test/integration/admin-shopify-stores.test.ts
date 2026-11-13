@@ -16,7 +16,9 @@ describe('admin Shopify Stores routes', () => {
     c = await startContainers();
     app = await buildTestApp(c);
     adminAuth = await adminAuthHeader(app, 'SUPER_ADMIN');
-    const { token } = await createVerifiedUserToken(app, 'shopify-stores-non-admin@x.com');
+    const { token } = await createVerifiedUserToken(app, 'shopify-stores-non-admin@x.com', {
+      audience: 'admin',
+    });
     nonAdminAuth = { authorization: `Bearer ${token}` };
 
     const nonce = crypto.randomUUID();

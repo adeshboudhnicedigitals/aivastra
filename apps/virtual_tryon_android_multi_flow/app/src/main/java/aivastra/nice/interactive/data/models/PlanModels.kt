@@ -41,6 +41,8 @@ data class PlanSummary(
             ?.split(' ')?.joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }
 }
 
+enum class PlanReminderStage { SEVEN_DAY, THREE_DAY }
+
 data class UserPlan(
     /** active | expiring_soon | expired | revoked | offered | none */
     @SerializedName("status") val status: String = "none",
@@ -51,6 +53,22 @@ data class UserPlan(
     @SerializedName("note") val note: String? = null
 ) {
     val isInForce: Boolean get() = status == "active" || status == "expiring_soon"
+
+    /**
+     * Pre-expiry heads-up stage, same cut-offs as the web popup and reminder emails
+     * (`targetStageFor` in the API): 3 days or fewer, then 7 days or fewer. Null outside the
+     * window or when the plan isn't in force. Ended plans are handled by their own popup.
+     */
+    val reminderStage: PlanReminderStage?
+        get() {
+            if (!isInForce) return null
+            val d = daysRemaining ?: return null
+            return when {
+                d <= 3 -> PlanReminderStage.THREE_DAY
+                d <= 7 -> PlanReminderStage.SEVEN_DAY
+                else -> null
+            }
+        }
 
     /** The backend has no plan-name column; the cycle length is what tells plans apart. */
     val label: String

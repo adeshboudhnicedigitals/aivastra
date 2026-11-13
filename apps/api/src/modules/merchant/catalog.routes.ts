@@ -11,11 +11,12 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray, isNull, like, or, type SQL, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, like, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from '../admin/audit.js';
+import { catalogSearchCondition } from './catalog-search.js';
 import {
   type CatalogJobStaff,
   createMerchantCatalogJob,
@@ -319,6 +320,80 @@ async function serializeSubcategory(
   };
 }
 
+/**
+ * The merchant's catalogue subcategories (+ demo rows last). Shared by the owner/staff route and
+ * the device route (`/v1/device/catalog/subcategories`), so the tablet sees exactly what the
+ * owner's app saw.
+ */
+export async function listCatalogSubcategories(
+  app: FastifyInstance,
+  merchantId: string,
+  { category, includeDemo }: { category?: string; includeDemo: boolean },
+) {
+  const where = category
+    ? and(
+        eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+        eq(schema.merchantCatalogSubcategories.category, category),
+      )
+    : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
+
+  // General-purpose: lists subcategories across every garment type for this
+  // merchant/category, backed by the same unfiltered /v1/models/garment-types
+  // list the web catalogue-manager already uses. The saree Android app has its
+  // own dedicated GET /v1/merchant/catalog/saree-subcategories below — do not
+  // add a requiresMannequinStep filter here, it would break every non-saree
+  // category's ability to create/list subcategories.
+  const rows = await app.db
+    .select()
+    .from(schema.merchantCatalogSubcategories)
+    .where(where)
+    .orderBy(
+      schema.merchantCatalogSubcategories.sortOrder,
+      desc(schema.merchantCatalogSubcategories.createdAt),
+    );
+
+  const own = await Promise.all(rows.map((row) => serializeSubcategory(app, row)));
+  if (!includeDemo) return { items: own };
+  // Demo rows go last so the merchant's real products lead on the kiosk.
+  const demo = await loadDemoSubcategories(app, merchantId, { category });
+  return { items: [...own, ...demo] };
+}
+
+/** The merchant's live catalogue items (+ demo items last). Shared with `/v1/device/catalog`. */
+export async function listCatalogItems(
+  app: FastifyInstance,
+  merchantId: string,
+  {
+    search = '',
+    subcategoryId,
+    includeDemo,
+  }: { search?: string; subcategoryId?: string; includeDemo: boolean },
+) {
+  const conditions: (SQL | undefined)[] = [
+    eq(schema.merchantCatalogItems.merchantId, merchantId),
+    isNull(schema.merchantCatalogItems.deletedAt),
+  ];
+  // Merchants search by SKU as often as by label — match either, word by word.
+  conditions.push(
+    catalogSearchCondition(
+      [schema.merchantCatalogItems.label, schema.merchantCatalogItems.sku],
+      search,
+    ),
+  );
+  if (subcategoryId) conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
+
+  const items = await app.db
+    .select()
+    .from(schema.merchantCatalogItems)
+    .where(and(...conditions))
+    .orderBy(schema.merchantCatalogItems.sortOrder, desc(schema.merchantCatalogItems.createdAt));
+
+  const own = await Promise.all(items.map((item) => serializeCatalogItem(app, item)));
+  if (!includeDemo) return { items: own };
+  const demo = await loadDemoItems(app, merchantId, { subcategoryId, search });
+  return { items: [...own, ...demo] };
+}
+
 export async function merchantCatalogRoutes(app: FastifyInstance) {
   app.get(
     '/v1/merchant/catalog/subcategories',
@@ -333,33 +408,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const { category, includeDemo } = req.query as { category?: string; includeDemo: boolean };
-      const where = category
-        ? and(
-            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
-            eq(schema.merchantCatalogSubcategories.category, category),
-          )
-        : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
-
-      // General-purpose: lists subcategories across every garment type for this
-      // merchant/category, backed by the same unfiltered /v1/models/garment-types
-      // list the web catalogue-manager already uses. The saree Android app has its
-      // own dedicated GET /v1/merchant/catalog/saree-subcategories below — do not
-      // add a requiresMannequinStep filter here, it would break every non-saree
-      // category's ability to create/list subcategories.
-      const rows = await app.db
-        .select()
-        .from(schema.merchantCatalogSubcategories)
-        .where(where)
-        .orderBy(
-          schema.merchantCatalogSubcategories.sortOrder,
-          desc(schema.merchantCatalogSubcategories.createdAt),
-        );
-
-      const own = await Promise.all(rows.map((row) => serializeSubcategory(app, row)));
-      if (!includeDemo) return { items: own };
-      // Demo rows go last so the merchant's real products lead on the kiosk.
-      const demo = await loadDemoSubcategories(app, merchantId, { category });
-      return { items: [...own, ...demo] };
+      return listCatalogSubcategories(app, merchantId, { category, includeDemo });
     },
   );
 
@@ -701,36 +750,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         subcategoryId,
         includeDemo,
       } = req.query as { search?: string; subcategoryId?: string; includeDemo: boolean };
-      const conditions: (SQL | undefined)[] = [
-        eq(schema.merchantCatalogItems.merchantId, merchantId),
-        isNull(schema.merchantCatalogItems.deletedAt),
-      ];
-      if (search.trim()) {
-        const pattern = `%${search.trim()}%`;
-        // Merchants search by SKU as often as by label — match either.
-        conditions.push(
-          or(
-            ilike(schema.merchantCatalogItems.label, pattern),
-            ilike(schema.merchantCatalogItems.sku, pattern),
-          ),
-        );
-      }
-      if (subcategoryId)
-        conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
-
-      const items = await app.db
-        .select()
-        .from(schema.merchantCatalogItems)
-        .where(and(...conditions))
-        .orderBy(
-          schema.merchantCatalogItems.sortOrder,
-          desc(schema.merchantCatalogItems.createdAt),
-        );
-
-      const own = await Promise.all(items.map((item) => serializeCatalogItem(app, item)));
-      if (!includeDemo) return { items: own };
-      const demo = await loadDemoItems(app, merchantId, { subcategoryId, search });
-      return { items: [...own, ...demo] };
+      return listCatalogItems(app, merchantId, { search, subcategoryId, includeDemo });
     },
   );
 

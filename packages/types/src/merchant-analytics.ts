@@ -97,3 +97,32 @@ export interface AnalyticsBreakdownResponse {
 // (null clears it). Logo, overlay, staff limit and device quota stay AiVastra-admin-only.
 export const MerchantBrandUpdateBody = z.object({ storeUrl: storeUrlSchema.nullable() });
 export type MerchantBrandUpdateBody = z.infer<typeof MerchantBrandUpdateBody>;
+
+// Team console: totals across every account (GET /admin/analytics/overview). Same metric
+// definitions as the per-merchant summary, so these totals equal the sum of the per-account ones.
+export const AdminOverviewQuery = AnalyticsQuery.pick({ from: true, to: true, tz: true });
+export type AdminOverviewQuery = z.infer<typeof AdminOverviewQuery>;
+
+export interface AdminOverviewAccount {
+  merchantId: string;
+  companyName: string;
+  sessions: number;
+  tried: number;
+  sold: number;
+  creditsSpent: number;
+}
+
+export interface AdminOverviewResponse {
+  window: AnalyticsWindow;
+  totals: {
+    /** Accounts that started at least one session in the window. */
+    activeAccounts: number;
+    sessions: number;
+    tried: number;
+    sold: number;
+    creditsSpent: number;
+  };
+  points: AnalyticsPoint[];
+  /** Busiest accounts first (by sessions, then credits), at most 10. */
+  top: AdminOverviewAccount[];
+}

@@ -267,3 +267,90 @@ a {
 .mw-side-btn:hover {
   background-color: rgba(248, 248, 248, 0.1);
 }
+
+/* Team console: loading placeholders and the focus ring (reduced-motion safe). */
+.hq-skeleton {
+  animation: hq-pulse 1.4s ease-in-out infinite;
+}
+@keyframes hq-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hq-skeleton {
+    animation: none;
+  }
+}
+.hq-shell a:focus-visible,
+.hq-shell button:focus-visible,
+.hq-shell input:focus-visible,
+.hq-shell [tabindex]:focus-visible {
+  outline: 2px solid var(--c-merchant-accent);
+  outline-offset: 2px;
+}
+.hq-row:hover {
+  background: var(--c-merchant-hover);
+}
+.hq-cards {
+  display: none;
+}
+@media (max-width: 760px) {
+  .hq-table {
+    display: none;
+  }
+  .hq-cards {
+    display: grid;
+    gap: 10px;
+  }
+  .hq-header-user {
+    display: none;
+  }
+}
+
+/* Team console surfaces: same flat card language as the retailer app. */
+.hq-shell {
+  font-variant-numeric: tabular-nums;
+}
+.hq-card {
+  background: var(--c-card);
+  border: 1px solid var(--c-border2);
+  border-radius: 12px;
+  transition: border-color 0.18s ease;
+}
+.hq-card--link:hover {
+  border-color: var(--c-merchant-accent);
+}
+.hq-shell input::placeholder {
+  color: var(--c-light);
+}
+.hq-shell input:focus {
+  border-color: var(--c-merchant-accent) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hq-card {
+    transition: none;
+  }
+}
+
+/* Console pages are taller than the viewport. The global `height: 100%` on html/body pins them to one
+   screen, so content overflows the body and the light page background shows under the dark shell. */
+html:has(.hq-shell),
+body:has(.hq-shell) {
+  height: auto;
+  min-height: 100%;
+  background: var(--c-side-nav);
+}
+
+/* Scrolling card in the app shells: scrolls, but draws no scrollbar. */
+.mw-scroll-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.mw-scroll-hidden::-webkit-scrollbar {
+  display: none;
+}

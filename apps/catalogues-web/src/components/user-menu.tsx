@@ -16,6 +16,7 @@ interface CreditsResponse {
 interface MeResponse {
   email: string;
   displayName: string | null;
+  avatarUrl?: string | null;
 }
 
 export function UserMenu() {
@@ -23,6 +24,8 @@ export function UserMenu() {
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupRect, setPopupRect] = useState<{ bottom: number; right: number } | null>(null);
   const [profileHover, setProfileHover] = useState(false);
+  // Presigned avatar URLs expire; fall back to initials rather than a broken image.
+  const [brokenAvatar, setBrokenAvatar] = useState<string | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
   const { data: credits } = useQuery<CreditsResponse>({
@@ -41,6 +44,7 @@ export function UserMenu() {
     credits?.unlimitedPlan?.status === 'expiring_soon';
   const email = me?.email ?? '';
   const displayName = me?.displayName ?? email.split('@')[0] ?? 'User';
+  const avatarUrl = me?.avatarUrl && me.avatarUrl !== brokenAvatar ? me.avatarUrl : null;
   const initials = displayName.slice(0, 2).toUpperCase() || 'U';
 
   async function handleSignOut() {
@@ -214,9 +218,23 @@ export function UserMenu() {
               fontWeight: 600,
               color: '#ffffff',
               flexShrink: 0,
+              overflow: 'hidden',
             }}
           >
-            {initials}
+            {avatarUrl ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: short-lived presigned storage URL, not optimisable by next/image */}
+                <img
+                  src={avatarUrl}
+                  alt=""
+                  onError={() => setBrokenAvatar(avatarUrl)}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </>
+            ) : (
+              initials
+            )}
           </div>
         </button>
       </div>

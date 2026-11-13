@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { routeMerchantWebhook } from '../crm/webhook.js';
 import { parseStatuses, parseWebhook } from './channels/whatsapp/parse.js';
 import { verifySignature } from './channels/whatsapp/signature.js';
 import { recordStatus } from './channels/whatsapp/status.js';
@@ -33,9 +34,22 @@ export async function whatsappWebhookRoutes(app: FastifyInstance) {
       // Meta's own delivery volume, not abuse: keep the limiter well out of its way.
       { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } },
       async (req, reply) => {
+        const raw = req.body as Buffer;
+        // A brand's own number (CRM mode A) is routed first, on its own secret and stream;
+        // every other body continues below exactly as before (modules/crm/webhook.ts).
+        const routed = await routeMerchantWebhook(
+          app,
+          raw,
+          req.headers['x-hub-signature-256'] as string | undefined,
+        );
+        if (routed === 'accepted') return reply.code(200).send();
+        if (routed === 'rejected') {
+          app.log.warn('whatsapp webhook: merchant channel signature invalid — rejected');
+          return reply.code(401).send();
+        }
+
         if (app.env.MESSAGING_WHATSAPP_ENABLED !== true) return reply.code(200).send();
         const secret = app.env.WHATSAPP_APP_SECRET;
-        const raw = req.body as Buffer;
         if (
           !secret ||
           !verifySignature(raw, req.headers['x-hub-signature-256'] as string | undefined, secret)

@@ -47,6 +47,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -191,6 +193,25 @@ fun SignInPage(
     val uiState by viewModel.uiState.collectAsState()
     val isLoading = uiState is LoginUiState.Loading
     val isDeviceLimitReached = uiState is LoginUiState.DeviceLimitReached
+
+    // Legacy Google chooser, used when Credential Manager hangs or errors on this device.
+    val legacyGoogleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result -> viewModel.completeLegacyGoogleLogin(result.resultCode, result.data) }
+    LaunchedEffect(viewModel) {
+        viewModel.legacyGoogleIntents.collect { intent ->
+            try {
+                legacyGoogleLauncher.launch(intent)
+            } catch (e: Exception) {
+                // No activity can handle it (Play Services missing/disabled): don't leave the
+                // spinner up — report it and let the user fall back to email sign-in.
+                viewModel.completeLegacyGoogleLogin(android.app.Activity.RESULT_CANCELED, null)
+                toastMessage = "Google sign-in isn't available on this device. Please sign in with email."
+                toastType = ToastType.ERROR
+                toastVisible = true
+            }
+        }
+    }
 
     // React to state changes (success / error toasts)
     LaunchedEffect(uiState) {

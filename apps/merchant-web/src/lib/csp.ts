@@ -14,6 +14,14 @@ function originOf(url: string | undefined): string | null {
 
 const apiOrigin = originOf(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000');
 
+// Hosts that serve presigned storage URLs (R2_PUBLIC_PRESIGN_BASE) when that host is not the
+// app's own origin, loopback or *.r2.cloudflarestorage.com — e.g. a dev tunnel. Comma-separated,
+// images only. Baked in at build time like NEXT_PUBLIC_API_URL; unset means no extra origins.
+const mediaOrigins = (process.env.NEXT_PUBLIC_MEDIA_ORIGINS ?? '')
+  .split(',')
+  .map((v) => originOf(v.trim()))
+  .filter((o): o is string => o !== null);
+
 /**
  * Nonce + 'strict-dynamic': Next.js auto-tags its own inline/streaming
  * scripts with the nonce it finds on the request, and 'strict-dynamic' lets
@@ -42,6 +50,7 @@ export function buildCsp(nonce: string): string {
       'http://127.0.0.1:*', // local MinIO in dev — loopback-only, harmless outside a dev machine
       'https://*.r2.cloudflarestorage.com',
       ...(apiOrigin ? [apiOrigin] : []),
+      ...mediaOrigins,
     ],
     'font-src': ["'self'", 'data:'],
     'connect-src': [

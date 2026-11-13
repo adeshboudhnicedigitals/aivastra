@@ -1,10 +1,12 @@
 import { type FormEvent, useState } from 'react';
 import { Icon } from '../components/Icons';
-import { useAuth } from '../context/AuthContext';
+import { MfaStep } from '../components/MfaStep';
+import { type MfaChallenge, useAuth } from '../context/AuthContext';
 import { ApiError } from '../lib/data';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, finishLogin } = useAuth();
+  const [mfa, setMfa] = useState<MfaChallenge | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -16,7 +18,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(email, password);
+      setMfa(await login(email, password));
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         setError('No admin access. Contact a super admin to grant you access.');
@@ -28,6 +30,20 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (mfa) {
+    return (
+      <MfaStep
+        step={mfa.step}
+        mfaToken={mfa.mfaToken}
+        onDone={(accessToken) => finishLogin(accessToken)}
+        onCancel={() => {
+          setMfa(null);
+          setPassword('');
+        }}
+      />
+    );
   }
 
   return (

@@ -88,6 +88,8 @@ changed dropdown — use a styled, accessible dropdown for the app you're in:
   that file renders pixel-faithful mockups of real marketplace listing pages
   (`AmazonMobileTemplate` et al.), so its `<select>` is deliberately styled to
   match Amazon's own chrome, not Aivastra's. Don't "fix" that one.
+- `apps/merchant-web` — use `PremiumSelect` (`src/components/ui/premium-select.tsx`), as in
+  `catalogues-web`; the console's searchable lists use the same component.
 - `apps/shopify` — use Polaris's `Select`/`Combobox`, never a raw `<select>`;
   Polaris *is* this app's design system.
 - `apps/admin-web` — use `SearchableSelect`
@@ -168,6 +170,8 @@ apps/chatbot           Fastify + WS support-ticket system — no LLM in the answ
                        currently unused — kept for possible future agent-assist reuse
 apps/catalogues-web    Next.js 15 — user-facing UI (pkg name @aivastra/web)
 apps/admin-web         Vite + React SPA — internal admin panel (pkg name @aivastra/admin)
+apps/merchant-web      Next.js 15 — retailer app (in-store analytics, Insights, carts, CRM) plus the
+                       `/hq` team console (pkg name @aivastra/merchant-web, port 3010)
 apps/shopify           Vite + React + Polaris — embedded Shopify admin SPA
 apps/shopify-extension Shopify app config + theme app extension (Liquid/JS/CSS)
 packages/db            Drizzle schema + migrations + createDb() factory
@@ -340,6 +344,53 @@ route matching.
 
 ---
 
+## Merchant web and the team console (`apps/merchant-web`)
+
+Two surfaces in one Next.js app, with **separate sessions on purpose**.
+
+- **Retailer app** (`src/app/(app)`): dashboard, Insights, performance, catalogue, Bill a Cart,
+  customers, branches, staff, devices, settings. Auth is a BFF like `catalogues-web`
+  (`src/app/api/auth`, httpOnly cookies, in-memory access token in `src/lib/api.ts`). Roles are
+  merchant `admin` (all branches) and `staff` (own branch only); admin-only pages and nav entries
+  are gated by `canManageOrg`, and the API enforces the same scope in `resolveScope` /
+  `requireMerchantAdmin` — never rely on the UI hiding something.
+- **Team console** (`src/app/hq`): AiVastra staff only, calling `/admin/*` through its own client
+  (`src/lib/hq-api.ts`, its own token and `/hq/api/auth` refresh route). A console token must
+  never ride a retailer request, nor the reverse. Nav entries are filtered by the caller's
+  permission (`can(...)`) so a role is never shown a page whose API call would only 403.
+  The login page is shared; the account type decides where you land.
+- Console pages are **copies** of their `admin-web` counterparts. Leave `admin-web` untouched
+  unless asked to retire a page (see `docs/superpowers/specs/2026-11-12-merchant-web-account-console-design.md`).
+- Both surfaces share components (`components/analytics`, `components/insights`), so a change to a
+  card changes it in the retailer app and the console.
+
+**Analytics and Insights** (`/v1/merchant/analytics/*`, `/v1/merchant/insights/*`, and the console's
+`/admin/accounts/:id/analytics|insights/*`) run the **same handlers** behind two scopes; keep it that
+way so the two cannot disagree. Definitions that must not drift: sessions, tried and sold count by
+the *session's* `started_at`; sold excludes voided; credits are session-attributed jobs net of
+refunds (`NOT_REFUNDED`); the peak-hours heatmap reads `analytics_buckets` (15-minute UTC buckets,
+so it trails live activity by about two minutes) while Insights and the dashboard read the source
+tables. Out-of-stock demand joins `analytics_events.props->>'variantId'` as **text, never cast** —
+tablet-reported ids are forgeable.
+
+Traps:
+- **CSP** (`src/lib/csp.ts`) is built per request from this build's env. `img-src` allows only
+  self, loopback MinIO, `*.r2.cloudflarestorage.com`, the API origin and `NEXT_PUBLIC_MEDIA_ORIGINS`
+  (build arg, comma-separated, empty by default), so presigned images on any other host (e.g. a dev
+  tunnel) are blocked. When an environment's images go missing, compare `R2_PUBLIC_PRESIGN_BASE`
+  with that list and rebuild after changing the var.
+- Tailwind's reset zeroes margins, which a modal `<dialog>` uses to centre itself: give a native
+  dialog `margin: 'auto'` (see `components/hq/modal.tsx`).
+- A CSS grid track defaults to min-content; use `minmax(0, 1fr)` for a column holding something that
+  scrolls internally, or the card widens on a phone.
+- SSE and Redis: an ioredis `subscribe()` that rejects after the client left is an unhandled
+  rejection that kills the API. Always `.catch` it (`modules/jobs/sse.ts`).
+- Cart codes use the alphabet `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no `0 1 I L O`); a hand-seeded code
+  outside it is rejected by the Bill a Cart screen.
+- Browser checks: with Playwright use `domcontentloaded` plus a wait, not `networkidle` (SSE never settles).
+
+---
+
 ## Shopify surface
 
 **Embedded admin** (`apps/shopify`) — Vite + React + Polaris, served under
@@ -474,6 +525,26 @@ catalogs, `params` JSONB), `job_outputs`, `job_events`.
 **Merchant & widget** — `merchants` (one per user; no balance of its own —
 merchant spend draws from `user_credits`), `merchant_payments`, `kiosk_devices`.
 
+**In-store analytics** — `analytics_events` (append-only, no foreign keys:
+server events written in the same transaction as their source write, plus
+tablet events from `POST /v1/device/events`, deduped on `(device_id,
+client_event_id)`), `analytics_buckets` (15-minute UTC rollups; try-on outcomes
+are *derived* from `jobs` here, never emitted by the dispatcher),
+`analytics_rollup_state` (the rollup watermark). Advisory only — see Invariants.
+
+**In-store CRM** — `merchant_whatsapp_channels` (the brand's own WhatsApp number, mode A:
+token and app secret sealed under `CRM_DATA_KEY`), `merchant_crm_settings` (retention has no
+default; identification stays off until both periods are chosen), `shoppers` (per merchant:
+encrypted phone + keyed lookup hash, wiped by retention), `shopper_consents` (append-only,
+versioned), `merchant_customer_segments` (saved list filters), `instore_sessions.shopper_id`.
+
+**Inventory & cart** — `size_sets` (AiVastra-curated, attached to `garment_subcategories.size_set_id`),
+`merchant_catalog_variants` (size × colour, SKU, barcode unique per merchant), `variant_branch_stock`
+(status always set; a row whose `source` is not `manual` is feed-owned and refuses manual edits),
+`carts` (one per session, unguessable `cart_code`, outlives the session) and `cart_lines`. A cart line
+is not a sale: billing it writes the existing `session_items` `sold` rows and `sale_recorded`
+events, one per unit, with `billed_source` and the billed price.
+
 **Shopify** — `shopify_stores` (encrypted tokens, auto-refill subscription state),
 `shopify_store_credits` + `shopify_credit_ledger` (stores bill themselves; not
 the linked user), `shopify_shoppers`, `shopify_catalog_jobs`,
@@ -508,11 +579,11 @@ template determines which inputs that pose supports.
 | `uploads/` | `/v1/uploads/presign` — records `upload:owner:{key}` in Redis (24h) for ownership binding |
 | `results/` | `/v1/results/:id` public result access |
 | `payments/` | Razorpay order creation + webhook |
-| `merchant/` | merchant self-serve (API key regen, webhook config, credits) |
+| `merchant/` | merchant self-serve (API key regen, webhook config, credits), org (branches, staff, devices), analytics (`analytics/`) and Insights (`insights/`: funnel, lost demand, out of stock, reliability); shared handlers also serve the console |
 | `kiosk/` | `/v1/kiosk/*` — device-authed customer-facing tryon |
 | `support/`, `backgrounds/`, `dev/` | contact form; user-uploaded backgrounds; public API-key-authed developer API |
 | `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, activation and product sync, widget-config + republish, onboarding (theme-editor deep link), customer job creation, credit-pack purchase + auto-refill enrolment, GDPR + billing webhooks, `/customer/event`, `/analytics` |
-| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings, prod-snapshot (SUPER_ADMIN-only status/download for the local-dev snapshot's DB dump — `docs/local-dev-snapshot-runbook.md`) |
+| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings, prod-snapshot (SUPER_ADMIN-only status/download for the local-dev snapshot's DB dump — `docs/local-dev-snapshot-runbook.md`), the account console (`accounts`, `overview`, per-account `analytics`/`insights`/`shopify-stores`; `accounts.read`) and admin TOTP (`/admin/auth/mfa/*`, `/admin/users/:id/mfa/reset`) |
 
 ### Background loops in the api process
 
@@ -535,6 +606,10 @@ test can drive one pass directly.
 | `startUserLowCreditAlertScheduler` | 1h | low-credit emails for platform users |
 | `startWhatsappInboundConsumer` | continuous | `messaging:inbound` stream → `processInbound` (per-sender chains, 20 in flight) |
 | `startWhatsappDelivery` | 5s | sends finished runs; the paid template goes out once when the window is closed |
+| `startCrmInboundConsumer` | continuous | `crm:inbound` stream → shopper messages to a brand's own WhatsApp number (`LOOKS <code>`, consent, looks, STOP). Own Redis connection for `XREADGROUP BLOCK`. Only when `CRM_IDENTIFY_ENABLED` and `CRM_DATA_KEY` |
+| `startCrmRetention` | 1h | wipes shopper profiles past the merchant's chosen retention (phone, name, session links; consent history kept), then deletes ALL in-store session photos and results past the photo period (objects first, keys nulled after). Runs whenever `CRM_DATA_KEY` is set, flag or not |
+| `startCartAbandonSweeper` | 1h | marks in-store carts still open after 24h as abandoned (they can no longer be billed) |
+| `startAnalyticsRollup` | 60s | rebuilds the `analytics_buckets` touched since its watermark (60s commit-skew lag); hourly it also rebuilds the trailing 48h, which is what corrects a retried job and a late commit. Advisory lock, so replicas never double-count |
 
 The dispatcher runs its own, separately: the stuck-job sweeper and the
 `XPENDING` recovery pass (`apps/dispatcher/src/stream/`).
@@ -613,6 +688,22 @@ hangs on streaming responses.
   double-charge one Shopify had actually accepted.
 - `shopify_widget_events` is advisory only. Never read it for a credit, limit, or
   authorization decision.
+- `analytics_events` and `analytics_buckets` are advisory only, under the same
+  rule. Client (tablet) events take merchant/branch/device from the device token,
+  never the body, and may only use the `ANALYTICS_CLIENT_EVENTS` allowlist
+  (`packages/types/src/analytics-events.ts`); server event names from a client are
+  a 400. Rollups delete and rebuild a bucket, never increment one.
+- Admin second factor: once `ADMIN_MFA_ENFORCE=true`, any admin whose role holds `accounts.read` or
+  `credits.grant` must enrol TOTP and pass a code at login; anyone already enrolled is challenged
+  regardless. It fails closed — enforcement on without `ADMIN_MFA_KEY` is a 503, never a skip.
+  The console's per-account read routes are gated by `accounts.read` and write no audit row; its
+  writes (credit grants, refund decisions) write `audit_logs` in the same transaction.
+- CRM data is the merchant's (Data Fiduciary; AiVastra is the processor). A shopper is unique on
+  `(merchant_id, phone_hash)` and is never joined across merchants. Phone numbers exist only
+  encrypted; channel tokens and app secrets are never returned by an API or written to
+  `audit_logs`. The shared WhatsApp webhook routes a body for a connected merchant number to
+  `crm:inbound` (verified with that merchant's app secret) **before** the seller lane; nothing
+  from a merchant number may reach the seller conversation engine.
 - No schema or data changes against production. See "Production safety" above.
 
 ---
@@ -631,6 +722,8 @@ hangs on streaming responses.
 | `WORKER_API_KEY` | dispatcher |
 | `PIXVERSE_*`, `VIDEO_CONCURRENCY` | dispatcher (catalog video lane) |
 | `SHOPIFY_API_KEY` / `_SECRET` / `_APP_URL` / `_SCOPES` / `_TOKEN_ENC_KEY` | api |
+| `ADMIN_MFA_KEY`, `ADMIN_MFA_ENFORCE` | api — admin TOTP. Key is 32 bytes base64 and seals each authenticator secret; losing or rotating it locks every enrolled admin out until a SUPER_ADMIN resets their factor. Enforcement flag accepts only `'true'`; off by default |
+| `CRM_DATA_KEY`, `CRM_IDENTIFY_ENABLED` | api — CRM shopper identification (32-byte key; flag accepts only `'true'`) |
 | `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | api — lifts the `TEST_GRANT_LIMIT` bound on credits granted for Shopify *test* charges (development stores grant up to that bound regardless). Accepts only the literal `'true'` (deliberately not `z.coerce.boolean()`, which turns `'false'` into `true`). Off in production |
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_BASE_PATH` | catalogues-web (build time) |
 | `VITE_API_BASE_URL`, `VITE_SHOPIFY_API_KEY`, `VITE_CHATBOT_URL` | SPAs (build time) |

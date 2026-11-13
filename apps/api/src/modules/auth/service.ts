@@ -20,6 +20,9 @@ export async function verifyPassword(stored: string, pw: string) {
   }
 }
 
+/** Audience of AiVastra console / admin-web access tokens. */
+export const ADMIN_AUDIENCE = 'admin';
+
 export async function signAccess(
   secret: Uint8Array,
   sub: string,
@@ -39,7 +42,8 @@ export async function verifyAccess(secret: Uint8Array, token: string) {
   return (await jwtVerify(token, secret, { algorithms: ['HS256'] })).payload;
 }
 export async function verifyAdminAccess(secret: Uint8Array, token: string) {
-  return (await jwtVerify(token, secret, { audience: 'admin', algorithms: ['HS256'] })).payload;
+  return (await jwtVerify(token, secret, { audience: ADMIN_AUDIENCE, algorithms: ['HS256'] }))
+    .payload;
 }
 
 export function newRefreshToken(): { plain: string; hash: string } {
