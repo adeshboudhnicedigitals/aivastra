@@ -1,3 +1,12 @@
+# 2026-11-13 — Insights: branch picker and per-account console view (local, not committed)
+
+- **Done:** `/admin/accounts/:id/insights/{funnel,lost-demand,out-of-stock,reliability}` (accounts.read, 404 for an unknown account) over the same
+  handlers as the merchant routes (`merchant/insights/handlers.ts`); an "Insights" section on the console account page, built from a shared
+  `InsightsSections` component the retailer page also uses. Test asserts the console response equals the merchant's own for the same account.
+- **Browser check:** seeded the local test merchant (items, carts, refused/viewed OOS events, stale stock); the console section renders all four
+  sections, no console errors, no overflow at 390px.
+- **Open:** `EXPLAIN` on a large fixture for the per-item queries; console section has no branch filter yet.
+
 # 2026-11-13 — Browser pass (Merchant Web + team console), fixes (local, not committed)
 
 - **Method:** Playwright (chromium) against the local dev stack with throwaway local users/data in `tryon_dev` (created via a script that was

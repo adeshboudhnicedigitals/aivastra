@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-12-instore-crm-analytics-design.md` §7.2 (Cart and conversion,
 Inventory, Operations and cost), §7.3 (role scoping: merchant admin all branches, staff their branch).
-**Status:** built locally (T1–T7, T9), uncommitted. Answers: min tries 5, stale 14 days, server OOS event yes. T8 and the branch filter on the page remain.
+**Status:** built locally (T1–T7, T9), uncommitted. Answers: min tries 5, stale 14 days, server OOS event yes. Branch filter on the page and T8 (console reuse) are done; only `EXPLAIN` on a large fixture remains.
 
 ## Goal
 
@@ -80,7 +80,7 @@ Types live in `packages/types` (Zod query, interfaces for responses), beside `me
 - [x] **T5 Reliability + cost queries.** Fixture: completed, failed, refunded and unfinished jobs; percentile of a known set; zero-division guards (no try-ons, no sales).
 - [x] **T6 Scope and isolation tests** for all four routes: staff forced to own branch (403 on another), other merchants' rows never leak, unauthenticated 401.
 - [x] **T7 Merchant Web page `/insights`.** KPI cards (funnel steps with step-to-step %), two tables with mobile cards, stale-stock list, reliability cards. Loading, error with retry, empty ("No try-ons in this range"), and an honest note where a number is device-reported or starts at the cart. Reuse `RangePicker`, `KpiCard`, `ListState`. Dark-mode safe tokens only.
-- [ ] **T8 Console reuse (optional, later).** `GET /admin/accounts/:id/insights/*` over the same handlers plus a section on the account page.
+- [x] **T8 Console reuse.** `GET /admin/accounts/:id/insights/*` over the same handlers plus a section on the account page.
 - [x] **T9 Docs.** `docs/progress.md` entry; spec §7.2 ticked for the metrics built.
 
 Order: T1 → T2 → (T3, T4, T5 in parallel) → T6 → T7 → T9.

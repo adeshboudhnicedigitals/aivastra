@@ -199,3 +199,47 @@ describe('GET /admin/accounts/:id/analytics/heatmap', () => {
     expect(missing.statusCode).toBe(404);
   });
 });
+
+describe('GET /admin/accounts/:id/insights/*', () => {
+  const NAMES = ['funnel', 'lost-demand', 'out-of-stock', 'reliability'];
+
+  it("returns what the merchant's own Insights screen returns for that account", async () => {
+    const a = await account({
+      name: 'Insight A',
+      sessions: ['2026-10-01T05:00:00Z', '2026-10-02T05:00:00Z'],
+      sold: 1,
+      tried: 2,
+      credits: 3,
+    });
+    const admin = await adminAuthHeader(app);
+    const owner = await memberAuthHeader(app, a.userId);
+    for (const name of NAMES) {
+      const viaConsole = await get(
+        `/admin/accounts/${a.merchantId}/insights/${name}?${RANGE}`,
+        admin,
+      );
+      const viaMerchant = await get(`/v1/merchant/insights/${name}?${RANGE}`, owner);
+      expect(viaConsole.statusCode).toBe(200);
+      expect(viaConsole.json()).toEqual(viaMerchant.json());
+    }
+    expect(
+      (await get(`/admin/accounts/${a.merchantId}/insights/funnel?${RANGE}`, admin)).json(),
+    ).toMatchObject({
+      sessions: 2,
+    });
+  });
+
+  it('needs accounts.read and a real account', async () => {
+    const m = await createTestMerchant(app);
+    for (const name of NAMES) {
+      const url = `/admin/accounts/${m.merchantId}/insights/${name}?${RANGE}`;
+      expect((await get(url, await memberAuthHeader(app, m.userId))).statusCode).toBe(401);
+      expect((await get(url, await adminAuthHeader(app, 'SUPPORT'))).statusCode).toBe(403);
+    }
+    const missing = await get(
+      `/admin/accounts/00000000-0000-4000-8000-000000000000/insights/funnel?${RANGE}`,
+      await adminAuthHeader(app),
+    );
+    expect(missing.statusCode).toBe(404);
+  });
+});

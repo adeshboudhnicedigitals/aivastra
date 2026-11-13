@@ -8,6 +8,13 @@ import {
   type AnalyticsSummaryResponse,
   AnalyticsTimeseriesQuery,
   type AnalyticsTimeseriesResponse,
+  type InsightsFunnelResponse,
+  InsightsQuery,
+  type InsightsReliabilityResponse,
+  LostDemandQuery,
+  type LostDemandResponse,
+  OutOfStockQuery,
+  type OutOfStockResponse,
 } from '@aivastra/types';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -17,6 +24,12 @@ import { buildBreakdown, buildSummary, buildTimeseries } from '../merchant/analy
 import { heatmapCells } from '../merchant/analytics/heatmap.js';
 import { resolveWindow } from '../merchant/analytics/params.js';
 import type { AnalyticsScope } from '../merchant/analytics/scope.js';
+import {
+  buildFunnel,
+  buildLostDemand,
+  buildOutOfStock,
+  buildReliability,
+} from '../merchant/insights/handlers.js';
 import { requirePermission } from './guard.js';
 
 // Account console phase 2: one account's dashboards for the AiVastra team. Same queries as the
@@ -93,6 +106,47 @@ export async function adminAccountAnalyticsRoutes(app: FastifyInstance) {
         metric: q.metric,
         cells: await heatmapCells(app.db, scope, window, q.metric),
       };
+    },
+  );
+
+  // The merchant's Insights screen for one account (same handlers, scope = the named merchant).
+  app.get(
+    '/admin/accounts/:id/insights/funnel',
+    { preHandler: GUARD, schema: { params: Params, querystring: InsightsQuery } },
+    async (req): Promise<InsightsFunnelResponse> => {
+      const { id } = req.params as z.infer<typeof Params>;
+      const q = req.query as InsightsQuery;
+      return buildFunnel(app, q, await scopeFor(id, q));
+    },
+  );
+
+  app.get(
+    '/admin/accounts/:id/insights/lost-demand',
+    { preHandler: GUARD, schema: { params: Params, querystring: LostDemandQuery } },
+    async (req): Promise<LostDemandResponse> => {
+      const { id } = req.params as z.infer<typeof Params>;
+      const q = req.query as LostDemandQuery;
+      return buildLostDemand(app, q, await scopeFor(id, q));
+    },
+  );
+
+  app.get(
+    '/admin/accounts/:id/insights/out-of-stock',
+    { preHandler: GUARD, schema: { params: Params, querystring: OutOfStockQuery } },
+    async (req): Promise<OutOfStockResponse> => {
+      const { id } = req.params as z.infer<typeof Params>;
+      const q = req.query as OutOfStockQuery;
+      return buildOutOfStock(app, q, await scopeFor(id, q));
+    },
+  );
+
+  app.get(
+    '/admin/accounts/:id/insights/reliability',
+    { preHandler: GUARD, schema: { params: Params, querystring: InsightsQuery } },
+    async (req): Promise<InsightsReliabilityResponse> => {
+      const { id } = req.params as z.infer<typeof Params>;
+      const q = req.query as InsightsQuery;
+      return buildReliability(app, q, await scopeFor(id, q));
     },
   );
 

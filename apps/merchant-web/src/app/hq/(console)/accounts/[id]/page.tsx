@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { KpiCard } from '@/components/analytics/KpiCard';
 import { AccountAnalytics } from '@/components/hq/account-analytics';
+import { AccountInsights } from '@/components/hq/account-insights';
 import { useHq } from '@/components/hq/hq-session';
 import { Avatar, btn, Card, Fact, Pill, Skeleton } from '@/components/hq/ui';
 import { C } from '@/components/tokens';
@@ -390,6 +391,10 @@ export default function AccountDetail() {
 
           <div style={{ marginBottom: 16 }}>
             <AccountAnalytics merchantId={d.id} />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <AccountInsights merchantId={d.id} />
           </div>
 
           <div style={{ display: 'grid', gap: 16 }}>
