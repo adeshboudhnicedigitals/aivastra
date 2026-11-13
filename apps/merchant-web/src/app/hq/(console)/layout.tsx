@@ -1,6 +1,6 @@
 'use client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { LogOut, Users } from 'lucide-react';
+import { CreditCard, LogOut, Undo2, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -13,7 +13,17 @@ import { hqSignOut } from '@/lib/hq-api';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 const SIDEBAR_WIDTH = 220;
-const NAV = [{ href: '/hq/accounts', label: 'Accounts', icon: Users }];
+// `permission` hides an entry from roles whose API calls would only answer 403.
+const NAV = [
+  { href: '/hq/accounts', label: 'Accounts', icon: Users, permission: 'accounts.read' },
+  { href: '/hq/payments', label: 'Payments', icon: CreditCard, permission: 'payments.read' },
+  {
+    href: '/hq/refund-requests',
+    label: 'Refund requests',
+    icon: Undo2,
+    permission: 'credits.read',
+  },
+];
 
 const pill: React.CSSProperties = {
   display: 'inline-flex',
@@ -33,7 +43,8 @@ const pill: React.CSSProperties = {
 };
 
 function Frame({ children }: { children: React.ReactNode }) {
-  const { me } = useHq();
+  const { me, can } = useHq();
+  const nav = NAV.filter((n) => can(n.permission));
   const path = usePathname() ?? '';
   const isActive = (href: string) => path === href || path.startsWith(`${href}/`);
   const initial = (me.email ?? 'A').charAt(0).toUpperCase();
@@ -102,7 +113,7 @@ function Frame({ children }: { children: React.ReactNode }) {
           aria-label="Console"
           style={{ marginTop: 20, padding: '0 12px 16px 20px', display: 'grid', gap: 16 }}
         >
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {nav.map(({ href, label, icon: Icon }) => {
             const active = isActive(href);
             return (
               <Link
@@ -139,7 +150,7 @@ function Frame({ children }: { children: React.ReactNode }) {
         className="fixed bottom-0 left-0 right-0 z-40 flex h-[var(--mw-nav-h)] justify-around md:hidden"
         style={{ background: C.navbar, borderTop: `1px solid ${C.border}` }}
       >
-        {NAV.map(({ href, label, icon: Icon }) => (
+        {nav.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
