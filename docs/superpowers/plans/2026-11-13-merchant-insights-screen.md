@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-12-instore-crm-analytics-design.md` §7.2 (Cart and conversion,
 Inventory, Operations and cost), §7.3 (role scoping: merchant admin all branches, staff their branch).
-**Status:** built locally (T1–T7, T9), uncommitted. Answers: min tries 5, stale 14 days, server OOS event yes. Branch filter on the page and T8 (console reuse) are done; only `EXPLAIN` on a large fixture remains.
+**Status:** built locally (T1–T7, T9), uncommitted. Answers: min tries 5, stale 14 days, server OOS event yes. Branch filter on the page and T8 (console reuse) are done; `EXPLAIN` on a large fixture is done (see `docs/progress.md`).
 
 ## Goal
 

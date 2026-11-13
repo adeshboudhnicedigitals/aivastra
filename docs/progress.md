@@ -1,3 +1,17 @@
+# 2026-11-13 — Insights queries measured on a large fixture (local scratch DB, no code change)
+
+- **Fixture** (scratch database, since dropped): one merchant with 500k sessions over 12 months across 25 branches, 40 other merchants with 12.5k each
+  (1M sessions, 3M tried + 143k sold items, 600k carts / 1.2M lines, 1M analytics events, 333k jobs), all migrations applied, `ANALYZE`d.
+- **Warm timings for the big merchant** (ms; funnel / lost demand / out of stock; others under 300):
+  - 30 days, all branches: 700 / 790 / 280.
+  - 30 days, one branch: 40 / 40 / 40.
+  - 12 months, all branches: 2,800 / 1,150 / 650.
+  - 12 months, one branch: 290 / 290 / 90.
+  First (cold) runs were up to 5.4s (30d) and 15.8s (12 months) from disk reads.
+- **Plans:** the 12-month all-branch funnel seq-scans because half the table matches (correct). At 30 days it still seq-scans `session_items`
+  and `carts` for a 41k-session window; 0.7s, so no index added (both are hot write tables). Revisit if a real merchant exceeds this fixture.
+- **Not measured:** concurrency (a dashboard load fires all four routes at once), and a production-sized Postgres config (the local container uses defaults).
+
 # 2026-11-13 — Insights: branch picker and per-account console view (local, not committed)
 
 - **Done:** `/admin/accounts/:id/insights/{funnel,lost-demand,out-of-stock,reliability}` (accounts.read, 404 for an unknown account) over the same
