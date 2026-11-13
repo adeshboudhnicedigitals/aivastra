@@ -1,6 +1,8 @@
 // Renewal popup for the virtual try-on Android app. The app asks on every launch
 // and resume; the server decides whether to show it and with what copy, so going
 // live (or pulling it) never waits on a Play Store release.
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getActiveUnlimitedPlan } from './unlimited-plan.js';
 
@@ -41,10 +43,18 @@ export async function renewalPromptRoutes(app: FastifyInstance) {
   app.get('/v1/app/renewal-prompt', { preHandler: app.requireUser }, async (req) => {
     const cfg = await readRenewalPromptConfig(app);
     const live = cfg.enabled && (!cfg.startsAt || Date.parse(cfg.startsAt) <= Date.now());
+    if (!live) return { show: false as const };
     // Anyone with a plan in force is exempt, paid or admin-granted alike — the popup
     // exists to move everyone else onto one.
-    const show = live && !(await getActiveUnlimitedPlan(app.db, req.userId));
-    if (!show) return { show: false as const };
+    if (await getActiveUnlimitedPlan(app.db, req.userId)) return { show: false as const };
+    // A credits user (starter/growth/pro/pay-as-you-go) with balance left is not "expired":
+    // their try-ons run off credits, and the app has its own low-credit popup for when those
+    // dwindle. Only someone with neither a plan nor credits is blocked.
+    const [bal] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, req.userId));
+    if ((bal?.balance ?? 0) > 0) return { show: false as const };
     return {
       show: true as const,
       blocking: cfg.blocking,
