@@ -345,3 +345,12 @@ body:has(.hq-shell) {
   min-height: 100%;
   background: var(--c-side-nav);
 }
+
+/* Scrolling card in the app shells: scrolls, but draws no scrollbar. */
+.mw-scroll-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.mw-scroll-hidden::-webkit-scrollbar {
+  display: none;
+}

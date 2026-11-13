@@ -258,7 +258,10 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
   const items = NAV.filter((n) => !n.adminOnly || (me && canManageOrg(me.role)));
 
   return (
-    <div style={{ display: 'flex', minHeight: '100dvh', background: 'var(--c-side-nav)' }}>
+    <div
+      className="md:h-dvh md:overflow-hidden"
+      style={{ display: 'flex', minHeight: '100dvh', background: 'var(--c-side-nav)' }}
+    >
       <Sidebar items={items} />
       <nav
         aria-label="Main"
@@ -287,7 +290,7 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
       </nav>
       <main
         tabIndex={-1}
-        className="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 md:m-5 md:ml-0 md:rounded-[20px] md:p-5"
+        className="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 md:m-5 md:ml-0 mw-scroll-hidden md:min-h-0 md:overflow-y-auto md:rounded-[20px] md:p-5"
         style={{ background: C.bg }}
       >
         <TopBar />

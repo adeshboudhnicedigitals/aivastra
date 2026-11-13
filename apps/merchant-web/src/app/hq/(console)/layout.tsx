@@ -78,7 +78,7 @@ function Frame({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="hq-shell"
+      className="hq-shell md:h-dvh md:overflow-hidden"
       style={{ display: 'flex', minHeight: '100dvh', background: 'var(--c-side-nav)' }}
     >
       <a
@@ -194,7 +194,7 @@ function Frame({ children }: { children: React.ReactNode }) {
       <main
         id="main"
         tabIndex={-1}
-        className="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 md:m-5 md:ml-0 md:rounded-[20px] md:p-5"
+        className="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 md:m-5 md:ml-0 mw-scroll-hidden md:min-h-0 md:overflow-y-auto md:rounded-[20px] md:p-5"
         style={{ background: C.bg, outline: 'none' }}
       >
         <header
