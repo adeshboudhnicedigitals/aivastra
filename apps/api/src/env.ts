@@ -104,6 +104,18 @@ const Env = z.object({
   // export is enabled. Same encryptToken/decryptToken helper as the line
   // above, different key — see lib/crypto.ts.
   GOOGLE_DRIVE_TOKEN_ENC_KEY: z.string().optional(),
+  // Admin TOTP. 32 bytes (base64) seals each admin's authenticator secret (lib/crypto.ts).
+  // Losing or rotating it locks every enrolled admin out until a SUPER_ADMIN resets their factor.
+  ADMIN_MFA_KEY: z.string().optional(),
+  // When exactly 'true', admins whose role holds accounts.read or credits.grant must enrol and
+  // pass a code at login. Already-enrolled admins are challenged either way. Off by default.
+  ADMIN_MFA_ENFORCE: z.preprocess((v) => v === 'true', z.boolean()).default(false),
+  // CRM phase 2: 32 bytes (base64). HKDF subkeys seal merchant WhatsApp channel secrets,
+  // encrypt shopper phone numbers and key their lookup hash (modules/crm/crypto.ts). Rotating it
+  // makes every stored number and channel unreadable, like SHOPIFY_TOKEN_ENC_KEY.
+  CRM_DATA_KEY: z.string().optional(),
+  // Shopper identification on the merchant's WhatsApp. Only the literal 'true' turns it on.
+  CRM_IDENTIFY_ENABLED: z.preprocess((v) => v === 'true', z.boolean()).default(false),
   // Grant credits for Shopify *test* one-time charges (AppPurchaseOneTime.test),
   // which is what every development store produces — Shopify never bills them.
   // Off unless the value is exactly 'true', so production grants only against

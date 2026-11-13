@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { recordAudit } from '../admin/audit.js';
+import { recordSaleVoided } from '../analytics/record.js';
 import { generatePairingCode, sha256 } from '../device/secrets.js';
 
 const MERCHANT_ADMIN_ACTOR_ROLE = 'MERCHANT_ADMIN';
@@ -214,7 +215,7 @@ export async function merchantOrgDeviceRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       return app.db.transaction(async (tx) => {
         const [found] = await tx
-          .select({ item: schema.sessionItems })
+          .select({ item: schema.sessionItems, session: schema.instoreSessions })
           .from(schema.sessionItems)
           .innerJoin(
             schema.instoreSessions,
@@ -242,6 +243,7 @@ export async function merchantOrgDeviceRoutes(app: FastifyInstance) {
           resourceId: id,
           request: req,
         });
+        await recordSaleVoided(tx, found.session, row!);
         return row!;
       });
     },

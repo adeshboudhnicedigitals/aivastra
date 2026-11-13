@@ -1,0 +1,183 @@
+package aivastra.nice.interactive.api
+
+import aivastra.nice.interactive.data.models.AppVideoConfigResponse
+import aivastra.nice.interactive.data.models.CatalogAppDeviceCodeResponse
+import aivastra.nice.interactive.data.models.MeTierResponse
+import aivastra.nice.interactive.data.models.PlanResponse
+import aivastra.nice.interactive.data.models.RenewalPromptResponse
+import aivastra.nice.interactive.data.models.ContactRequest
+import aivastra.nice.interactive.data.models.DeviceLoginRequest
+import aivastra.nice.interactive.data.models.DeviceLoginResponse
+import aivastra.nice.interactive.data.models.ForceLoginRequest
+import aivastra.nice.interactive.data.models.GoogleLoginRequest
+import aivastra.nice.interactive.data.models.KioskDownloadBatchResponse
+import aivastra.nice.interactive.data.models.MerchantMeResponse
+import aivastra.nice.interactive.data.models.MerchantOnboardingRequest
+import aivastra.nice.interactive.data.models.MerchantOnboardingResponse
+import aivastra.nice.interactive.data.models.OnboardingStatusResponse
+import aivastra.nice.interactive.data.models.LogoutRequest
+import aivastra.nice.interactive.data.models.LogoutResponse
+import aivastra.nice.interactive.data.models.RefreshTokenRequest
+import aivastra.nice.interactive.data.models.RefreshTokenResponse
+import aivastra.nice.interactive.data.models.CatalogResponse
+import aivastra.nice.interactive.data.models.SubcategoryResponse
+import aivastra.nice.interactive.data.models.CreateUploadSessionResponse
+import aivastra.nice.interactive.data.models.PresignRequest
+import aivastra.nice.interactive.data.models.PresignResponse
+import aivastra.nice.interactive.data.models.TryOnHistoryResponse
+import aivastra.nice.interactive.data.models.UploadSessionStatusResponse
+import retrofit2.Response
+import retrofit2.http.Body
+import retrofit2.http.POST
+import retrofit2.http.GET
+import retrofit2.http.Query
+import retrofit2.http.Path
+
+/**
+ * Retrofit endpoints inherited from the owner app. The try-on path (catalog, photo, jobs) now
+ * points at their /v1/device twins (device-mode plan, M2); the owner-only endpoints below stay
+ * declared but are unreachable from device-mode navigation.
+ */
+interface ApiService {
+
+    /** App-wide loading/generation video config. Public — no merchant auth required. */
+    @GET("v1/config/app-video")
+    suspend fun getAppVideoConfig(): Response<AppVideoConfigResponse>
+
+    @POST("v1/device/tryon/upload-sessions")
+    suspend fun createUploadSession(): Response<CreateUploadSessionResponse>
+
+    @GET("v1/device/tryon/upload-sessions/{token}")
+    suspend fun getUploadSessionStatus(
+        @Path("token") token: String
+    ): Response<UploadSessionStatusResponse>
+
+    @POST("v1/device/tryon/presign")
+    suspend fun presignCustomerPhoto(
+        @Body request: PresignRequest
+    ): Response<PresignResponse>
+
+    @GET("v1/device/tryon/photo-url")
+    suspend fun getPhotoUrl(
+        @Query("r2Key") r2Key: String
+    ): Response<aivastra.nice.interactive.data.models.PhotoUrlResponse>
+
+    @POST("v1/device/tryon/jobs")
+    suspend fun createTryOnJob(
+        @retrofit2.http.Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: aivastra.nice.interactive.data.models.TryOnJobRequest
+    ): Response<aivastra.nice.interactive.data.models.TryOnJobResponse>
+
+    @POST("v1/merchant/quick-tryon/jobs")
+    suspend fun createQuickTryOnJob(
+        @Body request: aivastra.nice.interactive.data.models.QuickTryOnJobRequest
+    ): Response<aivastra.nice.interactive.data.models.TryOnJobResponse>
+
+    @GET("v1/device/tryon/jobs/{jobId}")
+    suspend fun getTryOnJobStatus(
+        @Path("jobId") jobId: String
+    ): Response<aivastra.nice.interactive.data.models.TryOnStatusResponse>
+
+    @retrofit2.http.DELETE("v1/merchant/tryon/jobs/{jobId}")
+    suspend fun deleteTryOnJob(
+        @Path("jobId") jobId: String
+    ): Response<Unit>
+
+    /**
+     * includeDemo defaults true server-side when omitted, but it is passed explicitly
+     * here so the admin-curated demo store items (gated by merchants.demoData) are
+     * deliberately requested rather than relying on that implicit default.
+     */
+    @GET("v1/device/catalog/subcategories")
+    suspend fun getSubcategories(
+        @Query("category") category: String,
+        @Query("includeDemo") includeDemo: Boolean = true
+    ): Response<SubcategoryResponse>
+
+    @GET("v1/device/catalog")
+    suspend fun getCatalog(
+        @Query("includeDemo") includeDemo: Boolean = true
+    ): Response<CatalogResponse>
+
+    /** Standard device login. Returns 409 DEVICE_LIMIT_REACHED when max devices exceeded. */
+    @POST("v1/auth/device-login")
+    suspend fun loginDevice(@Body request: DeviceLoginRequest): Response<DeviceLoginResponse>
+
+    /** Force logout other sessions and login on this device. */
+    @POST("v1/auth/device-login/force")
+    suspend fun forceLogin(@Body request: ForceLoginRequest): Response<DeviceLoginResponse>
+
+    /** Native Google sign-in — idToken comes from Credential Manager's GetGoogleIdOption. */
+    @POST("v1/auth/device-login/google")
+    suspend fun loginGoogle(@Body request: GoogleLoginRequest): Response<DeviceLoginResponse>
+
+    /** Refresh access token using a valid refresh token. */
+    @POST("v1/auth/device-refresh")
+    suspend fun refreshToken(@Body request: RefreshTokenRequest): Response<RefreshTokenResponse>
+
+    /** Logout the current device session. */
+    @POST("v1/auth/device-logout")
+    suspend fun logoutDevice(@Body request: LogoutRequest): Response<LogoutResponse>
+
+    /** Current merchant profile + credit balance/usage, for the logged-in merchant. */
+    @GET("v1/merchant/me")
+    suspend fun getMerchantMe(): Response<MerchantMeResponse>
+
+    /** Current merchantStatus + prefill data. Guarded by requireDeviceUser (device-login session, not requireMerchant). */
+    @GET("v1/merchant/onboarding")
+    suspend fun getOnboardingStatus(): Response<OnboardingStatusResponse>
+
+    /** Creates the merchants row for this user. Returns 409 if one already exists. */
+    @POST("v1/merchant/onboarding")
+    suspend fun submitOnboarding(@Body request: MerchantOnboardingRequest): Response<MerchantOnboardingResponse>
+
+    /**
+     * Mints a single-use code (60s TTL) from this device's bearer token so the
+     * Try-On Library WebView can log in as the same user without a fresh sign-in.
+     * No body — the user is identified from the Authorization header.
+     */
+    @POST("v1/auth/catalog-app-device-code")
+    suspend fun getCatalogAppDeviceCode(): Response<CatalogAppDeviceCodeResponse>
+
+    /**
+     * Whether to show the "Subscription Expired" popup. No body or query — the user comes
+     * from the Authorization header. Callers treat any failure as "don't show" so a server
+     * outage can never lock users out.
+     */
+    @GET("v1/credits")
+    suspend fun getPlan(): Response<PlanResponse>
+
+    /** The user's purchased credit plan (`tier`). */
+    @GET("v1/me")
+    suspend fun getMeTier(): Response<MeTierResponse>
+
+    @GET("v1/app/renewal-prompt")
+    suspend fun getRenewalPrompt(): Response<RenewalPromptResponse>
+
+    /** Submits a contact/support inquiry. Returns 204 No Content on success. */
+    @POST("v1/contact")
+    suspend fun sendContactMessage(@Body request: ContactRequest): Response<Unit>
+
+    /**
+     * Per-day summary of distinct input photos vs completed (generated) jobs
+     * for this merchant. Paginated newest-first; pass `before` (the previous
+     * response's nextCursor) to fetch older days. nextCursor is null on the
+     * last page.
+     */
+    @GET("v1/merchant/tryon/history")
+    suspend fun getTryOnHistory(
+        @Query("before") before: String? = null,
+        @Query("limit") limit: Int = 30
+    ): Response<TryOnHistoryResponse>
+
+    /**
+     * Public route (no auth) backing the "Download All" kiosk QR — mints fresh 24h
+     * presigned URLs for a batch of job IDs. Only jobs that are COMPLETED, have a
+     * result image, and completed within the last 24h are returned; anything else
+     * (expired/failed/invalid) is silently omitted rather than erroring.
+     */
+    @GET("v1/kiosk-download/batch")
+    suspend fun getKioskDownloadBatch(
+        @Query("jobIds") jobIds: String
+    ): Response<KioskDownloadBatchResponse>
+}

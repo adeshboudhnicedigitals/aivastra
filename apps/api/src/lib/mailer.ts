@@ -352,6 +352,35 @@ export async function sendPasswordResetEmail(
   });
 }
 
+function merchantInviteHtml(link: string, companyName: string, name?: string | null): string {
+  const content = `
+    ${banner('Your AI Vastra account is ready')}
+    <p style="font-size:14px;color:#555;margin:0 0 16px;">${greeting(name)}</p>
+    <p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 8px;text-align:center;">An AI Vastra account has been created for ${escapeHtml(companyName)}. Choose your password to sign in. This link expires in 72 hours and can be used once.</p>
+    ${button(link, 'Set your password')}
+    <p style="font-size:12px;color:#999;margin:24px 0 0;text-align:center;">If you weren't expecting this, you can safely ignore this email.</p>
+  `;
+  return emailShell(content);
+}
+
+export async function sendMerchantInviteEmail(
+  apiKey: string,
+  from: string,
+  merchantWebUrl: string,
+  to: string,
+  token: string,
+  companyName: string,
+  name?: string | null,
+): Promise<void> {
+  const link = `${merchantWebUrl}/set-password?token=${token}`;
+  await send(apiKey, {
+    from,
+    to,
+    subject: 'Your AI Vastra account is ready',
+    html: merchantInviteHtml(link, companyName, name),
+  });
+}
+
 function userLowCreditsHtml(name?: string | null): string {
   const content = `
     ${banner('Your AI Vastra Credits Are Running Low 🚨', '#7C2D12')}

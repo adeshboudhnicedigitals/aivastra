@@ -18,7 +18,7 @@ describe('admin-users', () => {
   });
 
   it('returns 403 for non-admin accessing admin routes', async () => {
-    const { token } = await createVerifiedUserToken(app, 'user@x.com');
+    const { token } = await createVerifiedUserToken(app, 'user@x.com', { audience: 'admin' });
     const res = await app.inject({
       method: 'GET',
       url: '/admin/users',
@@ -28,7 +28,9 @@ describe('admin-users', () => {
   });
 
   it('allows admin to list users', async () => {
-    const { token, userId } = await createVerifiedUserToken(app, 'admin2@x.com');
+    const { token, userId } = await createVerifiedUserToken(app, 'admin2@x.com', {
+      audience: 'admin',
+    });
     await app.db
       .update(schema.users)
       .set({ phone: '9876543210' })
@@ -49,10 +51,13 @@ describe('admin-users', () => {
     const { token: adminToken, userId: adminId } = await createVerifiedUserToken(
       app,
       'admin_banned_filter@x.com',
+      { audience: 'admin' },
     );
     await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPER_ADMIN' });
 
-    const { userId: bannedId } = await createVerifiedUserToken(app, 'banned_filter_target@x.com');
+    const { userId: bannedId } = await createVerifiedUserToken(app, 'banned_filter_target@x.com', {
+      audience: 'admin',
+    });
     await app.db
       .update(schema.users)
       .set({ isBanned: true, banReason: 'test suspension' })
@@ -83,6 +88,7 @@ describe('admin-users', () => {
     const { token: adminToken, userId: adminId } = await createVerifiedUserToken(
       app,
       'admin_paid_filter@x.com',
+      { audience: 'admin' },
     );
     await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPER_ADMIN' });
 
@@ -92,13 +98,17 @@ describe('admin-users', () => {
       credits: 100,
       basePaise: 10000,
     });
-    const { userId: paidId } = await createVerifiedUserToken(app, 'paid_filter_target@x.com');
+    const { userId: paidId } = await createVerifiedUserToken(app, 'paid_filter_target@x.com', {
+      audience: 'admin',
+    });
     await app.db
       .update(schema.users)
       .set({ tier: 'paid_filter_plan' })
       .where(eq(schema.users.id, paidId));
 
-    const { userId: freeId } = await createVerifiedUserToken(app, 'free_filter_target@x.com');
+    const { userId: freeId } = await createVerifiedUserToken(app, 'free_filter_target@x.com', {
+      audience: 'admin',
+    });
 
     const excludeFreeRes = await app.inject({
       method: 'GET',
@@ -125,13 +135,16 @@ describe('admin-users', () => {
     const { token: superAdminToken, userId: superAdminUserId } = await createVerifiedUserToken(
       app,
       'superadmin_erasure_user@x.com',
+      { audience: 'admin' },
     );
     await app.db
       .insert(schema.adminUsers)
       .values({ userId: superAdminUserId, role: 'SUPER_ADMIN' });
 
     // Target user to erase
-    const { userId: targetId } = await createVerifiedUserToken(app, 'target_pii@x.com');
+    const { userId: targetId } = await createVerifiedUserToken(app, 'target_pii@x.com', {
+      audience: 'admin',
+    });
     await app.db
       .update(schema.users)
       .set({
@@ -262,10 +275,13 @@ describe('admin-users', () => {
     const { token: superAdminToken, userId: superAdminId } = await createVerifiedUserToken(
       app,
       'sa_guard@x.com',
+      { audience: 'admin' },
     );
     await app.db.insert(schema.adminUsers).values({ userId: superAdminId, role: 'SUPER_ADMIN' });
 
-    const { userId: targetAdminId } = await createVerifiedUserToken(app, 'target_admin@x.com');
+    const { userId: targetAdminId } = await createVerifiedUserToken(app, 'target_admin@x.com', {
+      audience: 'admin',
+    });
     await app.db.insert(schema.adminUsers).values({ userId: targetAdminId, role: 'MODERATOR' });
 
     const res = await app.inject({
@@ -282,10 +298,13 @@ describe('admin-users', () => {
     const { token: superAdminToken, userId: superAdminId } = await createVerifiedUserToken(
       app,
       'sa_merchant_guard@x.com',
+      { audience: 'admin' },
     );
     await app.db.insert(schema.adminUsers).values({ userId: superAdminId, role: 'SUPER_ADMIN' });
 
-    const { userId: merchantOwnerId } = await createVerifiedUserToken(app, 'merchant_owner@x.com');
+    const { userId: merchantOwnerId } = await createVerifiedUserToken(app, 'merchant_owner@x.com', {
+      audience: 'admin',
+    });
     await app.db.insert(schema.merchants).values({
       userId: merchantOwnerId,
       companyName: 'Test Merchant',
@@ -308,10 +327,13 @@ describe('admin-users', () => {
     const { token: modToken, userId: modUserId } = await createVerifiedUserToken(
       app,
       'mod_user@x.com',
+      { audience: 'admin' },
     );
     await app.db.insert(schema.adminUsers).values({ userId: modUserId, role: 'MODERATOR' });
 
-    const { userId: plainUserId } = await createVerifiedUserToken(app, 'plain_target@x.com');
+    const { userId: plainUserId } = await createVerifiedUserToken(app, 'plain_target@x.com', {
+      audience: 'admin',
+    });
 
     const singleRes = await app.inject({
       method: 'DELETE',
@@ -333,16 +355,23 @@ describe('admin-users', () => {
     const { token: superAdminToken, userId: superAdminId } = await createVerifiedUserToken(
       app,
       'sa_bulk@x.com',
+      { audience: 'admin' },
     );
     await app.db.insert(schema.adminUsers).values({ userId: superAdminId, role: 'SUPER_ADMIN' });
 
     // 1. Clean plain user
-    const { userId: cleanId } = await createVerifiedUserToken(app, 'bulk_clean@x.com');
+    const { userId: cleanId } = await createVerifiedUserToken(app, 'bulk_clean@x.com', {
+      audience: 'admin',
+    });
     // 2. Admin user
-    const { userId: adminId } = await createVerifiedUserToken(app, 'bulk_admin@x.com');
+    const { userId: adminId } = await createVerifiedUserToken(app, 'bulk_admin@x.com', {
+      audience: 'admin',
+    });
     await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPPORT' });
     // 3. Merchant owner
-    const { userId: merchantId } = await createVerifiedUserToken(app, 'bulk_merchant@x.com');
+    const { userId: merchantId } = await createVerifiedUserToken(app, 'bulk_merchant@x.com', {
+      audience: 'admin',
+    });
     await app.db.insert(schema.merchants).values({
       userId: merchantId,
       companyName: 'Bulk Merchant',
@@ -351,7 +380,9 @@ describe('admin-users', () => {
       businessAddress: '456 Market St',
     });
     // 4. Already erased user
-    const { userId: erasedId } = await createVerifiedUserToken(app, 'bulk_erased@x.com');
+    const { userId: erasedId } = await createVerifiedUserToken(app, 'bulk_erased@x.com', {
+      audience: 'admin',
+    });
     await app.db
       .update(schema.users)
       .set({

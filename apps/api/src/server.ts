@@ -24,6 +24,9 @@ import {
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
 import { isShopifyPreviewOrigin } from './lib/shopify-origin.js';
+import { adminAccountAnalyticsRoutes } from './modules/admin/account-analytics.routes.js';
+import { adminAccountsRoutes } from './modules/admin/accounts.routes.js';
+import { adminAnalyticsOverviewRoutes } from './modules/admin/analytics-overview.routes.js';
 import { adminAuditRoutes } from './modules/admin/audit.routes.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminBlouseCategoriesRoutes } from './modules/admin/blouse-categories.routes.js';
@@ -51,6 +54,7 @@ import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.rou
 import { adminMerchantDeviceRoutes } from './modules/admin/merchant-devices.routes.js';
 import { adminMerchantOrgRoutes } from './modules/admin/merchant-org.routes.js';
 import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
+import { adminMfaRoutes } from './modules/admin/mfa.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminPaymentsRoutes } from './modules/admin/payments.routes.js';
 import { adminProdSnapshotRoutes } from './modules/admin/prod-snapshot.routes.js';
@@ -72,18 +76,25 @@ import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowChangeRequestsRoutes } from './modules/admin/workflow-change-requests.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
+import { inviteRoutes } from './modules/auth/invite.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { backgroundsRoutes } from './modules/backgrounds/routes.js';
+import { cartRoutes } from './modules/cart/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { renewalPromptRoutes } from './modules/credits/renewal-prompt.routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { unlimitedPlanLoginCheckRoutes } from './modules/credits/unlimited-plan-login-check.routes.js';
 import { unlimitedPlanRenewalRoutes } from './modules/credits/unlimited-plan-renewal.routes.js';
+import { customerRoutes } from './modules/crm/customers.routes.js';
+import { deviceIdentifyRoutes } from './modules/crm/identify.js';
+import { crmSettingsRoutes } from './modules/crm/settings.routes.js';
 import { devBackgroundsRoutes } from './modules/dev/backgrounds.routes.js';
 import { devCatalogRoutes } from './modules/dev/catalog.routes.js';
 import { minioProxyRoutes } from './modules/dev/minio-proxy.routes.js';
 import { devRoutes } from './modules/dev/routes.js';
+import { deviceEventsRoutes } from './modules/device/events.routes.js';
 import { deviceRoutes } from './modules/device/routes.js';
+import { deviceTabletRoutes } from './modules/device/tablet.routes.js';
 import { extensionRoutes } from './modules/extension/routes.js';
 import { fleetActivityRoutes } from './modules/fleet/activity.routes.js';
 import { fleetAgentAdminRoutes } from './modules/fleet/agent.routes.js';
@@ -98,12 +109,14 @@ import { fleetOperationsRoutes } from './modules/fleet/operations.routes.js';
 import { fleetOverviewRoutes } from './modules/fleet/overview.routes.js';
 import { fleetSettingsRoutes } from './modules/fleet/settings.routes.js';
 import { googleDriveRoutes } from './modules/google-drive/routes.js';
+import { inventoryRoutes } from './modules/inventory/routes.js';
 import { refundRequestsRoutes } from './modules/jobs/refund-requests.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { merchantAnalyticsRoutes } from './modules/merchant/analytics/routes.js';
 import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantBrandRoutes } from './modules/merchant/brand.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
+import { merchantInsightsRoutes } from './modules/merchant/insights/routes.js';
 import { kioskDownloadRoutes } from './modules/merchant/kiosk-download.routes.js';
 import { merchantMeRoutes } from './modules/merchant/me.routes.js';
 import { merchantOnboardingRoutes } from './modules/merchant/onboarding.routes.js';
@@ -187,6 +200,8 @@ export async function buildServer(env: Env) {
   app.setSerializerCompiler(serializerCompiler);
 
   app.decorate('env', env);
+  // Graph API calls with merchant WhatsApp credentials (modules/crm/channel.ts); tests stub it.
+  app.decorate('crmFetch', ((...args: Parameters<typeof fetch>) => fetch(...args)) as typeof fetch);
 
   // MinIO (R2_*) plus, when configured, the real R2 bucket for user objects
   // (USER_STORAGE_*) — presigned URLs for either can reach a browser.
@@ -476,9 +491,17 @@ export async function buildServer(env: Env) {
   await app.register(merchantMeRoutes);
   await app.register(merchantOrgRoutes);
   await app.register(merchantAnalyticsRoutes);
+  await app.register(merchantInsightsRoutes);
   await app.register(merchantBrandRoutes);
   await app.register(merchantOrgDeviceRoutes);
   await app.register(deviceRoutes);
+  await app.register(deviceEventsRoutes);
+  await app.register(deviceTabletRoutes);
+  await app.register(crmSettingsRoutes);
+  await app.register(customerRoutes);
+  await app.register(deviceIdentifyRoutes);
+  await app.register(inventoryRoutes);
+  await app.register(cartRoutes);
   await app.register(merchantTryonResultsRoutes);
   await app.register(merchantUploadSessionRoutes);
   await app.register(kioskDownloadRoutes);
@@ -550,6 +573,11 @@ export async function buildServer(env: Env) {
   await app.register(adminSareeRoutes);
   await app.register(adminContactRoutes);
   await app.register(adminMerchantsRoutes);
+  await app.register(adminAccountsRoutes);
+  await app.register(adminMfaRoutes);
+  await app.register(adminAccountAnalyticsRoutes);
+  await app.register(adminAnalyticsOverviewRoutes);
+  await app.register(inviteRoutes);
   await app.register(adminMerchantOrgRoutes);
   await app.register(adminMerchantDeviceRoutes);
   await app.register(resultsRoutes);

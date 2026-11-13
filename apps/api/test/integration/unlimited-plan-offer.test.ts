@@ -275,6 +275,32 @@ describe('unlimited plan offers (agreed price the user pays) + Android renewal p
       expect(res.json()).toEqual({ show: false });
     });
 
+    it('is hidden for a credits user who still has a balance, shown again at zero', async () => {
+      const { userId, auth } = await newUser();
+      await setPrompt(base);
+      await app.db
+        .insert(schema.userCredits)
+        .values({ userId, balance: 50 })
+        .onConflictDoUpdate({ target: schema.userCredits.userId, set: { balance: 50 } });
+      const withCredits = await app.inject({
+        method: 'GET',
+        url: '/v1/app/renewal-prompt',
+        headers: auth,
+      });
+      expect(withCredits.json()).toEqual({ show: false });
+
+      await app.db
+        .update(schema.userCredits)
+        .set({ balance: 0 })
+        .where(eq(schema.userCredits.userId, userId));
+      const empty = await app.inject({
+        method: 'GET',
+        url: '/v1/app/renewal-prompt',
+        headers: auth,
+      });
+      expect(empty.json().show).toBe(true);
+    });
+
     it('is hidden for a user whose plan is in force', async () => {
       const { userId, auth } = await newUser();
       await setPrompt(base);

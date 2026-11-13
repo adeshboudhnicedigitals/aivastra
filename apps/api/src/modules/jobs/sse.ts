@@ -35,17 +35,24 @@ function makeSubscription(
     (req.log ?? console).warn?.({ err, channel }, 'sse redis subscriber error');
   });
 
-  sub.subscribe(channel).then(() => {
-    sub.on('message', (_ch, raw) => {
-      try {
-        const evt = JSON.parse(raw) as Record<string, unknown>;
-        if (filter && !filter(evt)) return;
-        reply.raw.write(`event: ${evt.type ?? 'message'}\ndata: ${raw}\n\n`);
-      } catch {
-        /* ignore malformed publish */
-      }
+  sub
+    .subscribe(channel)
+    .then(() => {
+      sub.on('message', (_ch, raw) => {
+        try {
+          const evt = JSON.parse(raw) as Record<string, unknown>;
+          if (filter && !filter(evt)) return;
+          reply.raw.write(`event: ${evt.type ?? 'message'}\ndata: ${raw}\n\n`);
+        } catch {
+          /* ignore malformed publish */
+        }
+      });
+    })
+    .catch((err) => {
+      // A client that navigates away before the subscribe resolves closes the connection
+      // under it ("Connection is closed"). Unhandled, that rejection kills the whole API.
+      (req.log ?? console).warn?.({ err, channel }, 'sse subscribe failed');
     });
-  });
 
   const heartbeat = setInterval(() => reply.raw.write(`: ping\n\n`), 15_000);
 

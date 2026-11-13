@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { shoppers } from './crm.js';
 import { merchantBranches, merchantStaff, merchants } from './merchant.js';
 
 // v1.0 step 2 (docs/superpowers/specs/2026-11-06-v1-devices-sessions-entitlement-design.md).
@@ -37,7 +38,8 @@ export const merchantDevices = pgTable(
   }),
 );
 
-// One in-store visit. shopper_id / consent columns arrive with step 5.
+// One in-store visit. shopper_id is set when the shopper identifies on WhatsApp (CRM phase 2),
+// nulled again if that profile is deleted.
 export const instoreSessions = pgTable(
   'instore_sessions',
   {
@@ -56,6 +58,7 @@ export const instoreSessions = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
+    shopperId: uuid('shopper_id').references(() => shoppers.id, { onDelete: 'set null' }),
   },
   (t) => ({
     byDevice: index('instore_sessions_device_idx').on(t.deviceId, t.endedAt),
@@ -64,6 +67,9 @@ export const instoreSessions = pgTable(
     openByActivity: index('instore_sessions_open_activity_idx')
       .on(t.lastActivityAt)
       .where(sql`${t.endedAt} is null`),
+    byShopper: index('instore_sessions_shopper_idx')
+      .on(t.shopperId)
+      .where(sql`${t.shopperId} is not null`),
   }),
 );
 

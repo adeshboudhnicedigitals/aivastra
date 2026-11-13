@@ -182,6 +182,7 @@ describe('workflow comparison source erasure', () => {
     const { token, userId: adminId } = await createVerifiedUserToken(
       app,
       `admin-${randomUUID()}@x.test`,
+      { audience: 'admin' },
     );
     await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPER_ADMIN' });
     const { userId } = await createVerifiedUserToken(app, `target-${randomUUID()}@x.test`);

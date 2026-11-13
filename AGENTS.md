@@ -78,6 +78,7 @@ apps/dispatcher        Redis Stream consumer — only process talking to GPU wor
 apps/chatbot           support chatbot (LangGraph, pgvector RAG)
 apps/catalogues-web    Next.js user UI          (package @aivastra/web)
 apps/admin-web         Vite/React admin SPA     (package @aivastra/admin)
+apps/merchant-web      Next.js retailer app + `/hq` team console (package @aivastra/merchant-web)
 apps/shopify           embedded Shopify admin SPA (Polaris)
 apps/shopify-extension Shopify app config + theme app extension
 packages/db types storage logger observability
@@ -137,6 +138,10 @@ directly and cast them, so gates guarding money or access must compare
 - User hint text is sanitized before reaching a workflow prompt.
 - `packages/db/src/index.ts` exports `* as schema` — no duplicate re-export; import
   `@aivastra/db` as `workspace:*`, never by relative path.
+- Admin TOTP: with `ADMIN_MFA_ENFORCE=true`, roles holding `accounts.read` or `credits.grant`
+  must enrol and pass a code; enforcement without `ADMIN_MFA_KEY` fails closed (503).
+- merchant-web's retailer app and `/hq` console use separate sessions; console calls only `/admin/*`.
+  Analytics/Insights run the same handlers behind both scopes — keep them shared.
 - Shopify credit grants are idempotent on `external_ref`. Settle a stranded
   `PENDING` auto-refill purchase by replaying its charge under the row's original
   idempotency key, never by marking it `FAILED` (that risks a double charge).

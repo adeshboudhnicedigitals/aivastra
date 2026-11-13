@@ -1,6 +1,7 @@
 'use client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
+import { MfaStep } from '@/components/hq/mfa-step';
 import { Eye, EyeOff, LockIcon, MailIcon } from '@/components/icons';
 import { LogoAuth } from '@/components/logo';
 import { C } from '@/components/tokens';
@@ -9,6 +10,7 @@ import { GoogleBtn } from '@/components/ui/google-btn';
 import { useToast } from '@/components/ui/toast';
 import { initToken } from '@/lib/api';
 import { errorBodyMessage } from '@/lib/errors';
+import { initHqToken } from '@/lib/hq-api';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -100,6 +102,7 @@ function LoginFormInner() {
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [mfa, setMfa] = useState<{ step: 'verify' | 'enroll'; token: string } | null>(null);
 
   useEffect(() => {
     if (queryError) toast.show(queryError);
@@ -114,18 +117,51 @@ function LoginFormInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      const body = (await res.json().catch(() => null)) as { accessToken?: string } | null;
+      const body = (await res.json().catch(() => null)) as {
+        accessToken?: string;
+        kind?: 'console' | 'merchant' | 'mfa';
+        step?: 'verify' | 'enroll';
+        mfaToken?: string;
+      } | null;
+      // Team password was right; a second factor is owed before any session exists.
+      if (res.ok && body?.kind === 'mfa' && body.step && body.mfaToken) {
+        setMfa({ step: body.step, token: body.mfaToken });
+        return;
+      }
       if (!res.ok || !body?.accessToken) {
         toast.show(errorBodyMessage(body) ?? 'Unable to sign in. Try again.');
         return;
       }
-      initToken(body.accessToken);
-      router.push('/');
+      // The credentials decided which session this is; each keeps its own in-memory token.
+      if (body.kind === 'console') {
+        initHqToken(body.accessToken);
+        router.push('/hq/accounts');
+      } else {
+        initToken(body.accessToken);
+        router.push('/');
+      }
     } catch {
       toast.show('Unable to reach the server. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
+  }
+
+  if (mfa) {
+    return (
+      <MfaStep
+        step={mfa.step}
+        mfaToken={mfa.token}
+        onCancel={() => {
+          setMfa(null);
+          setPassword('');
+        }}
+        onDone={(accessToken) => {
+          initHqToken(accessToken);
+          router.push('/hq/accounts');
+        }}
+      />
+    );
   }
 
   return (

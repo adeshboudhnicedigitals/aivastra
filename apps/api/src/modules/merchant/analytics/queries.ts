@@ -30,7 +30,7 @@ function n(v: unknown): number {
 
 // postgres-js (prepare: false) cannot serialise a Date bound through drizzle's sql
 // template; send the instant as ISO text with an explicit cast.
-function iso(d: Date): SQL {
+export function iso(d: Date): SQL {
   return sql`${d.toISOString()}::timestamptz`;
 }
 
@@ -49,7 +49,7 @@ const ITEM_STAFF = sql`(case when i.action = 'wishlisted' then coalesce(i.staff_
  * A job with any such row contributes nothing; a failed job that was never refunded still
  * counts, because its credits really were spent.
  */
-const NOT_REFUNDED = sql`not exists (
+export const NOT_REFUNDED = sql`not exists (
   select 1 from credit_ledger l
   where l.job_id = j.id
     and l.reason in (${sql.join(

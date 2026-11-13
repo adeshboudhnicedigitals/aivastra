@@ -103,6 +103,22 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return (await readResponseBody(res)) as T;
 }
 
+/** Authenticated file download (CSV export): the bearer token cannot ride a plain link. */
+export async function apiDownload(path: string): Promise<Blob> {
+  let token = memToken ?? (await tryRefresh());
+  let res = await send(path, {}, token);
+  if (res.status === 401) {
+    token = await tryRefresh();
+    if (!token)
+      throw new ApiError(401, {
+        error: { code: 'SESSION_EXPIRED', message: 'Your session has expired. Sign in again.' },
+      });
+    res = await send(path, {}, token);
+  }
+  if (!res.ok) throw await responseError(res);
+  return res.blob();
+}
+
 export async function signOut(): Promise<void> {
   memToken = null;
   try {

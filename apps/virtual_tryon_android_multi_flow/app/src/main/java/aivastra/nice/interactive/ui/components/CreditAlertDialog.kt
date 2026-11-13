@@ -26,7 +26,6 @@ import aivastra.nice.interactive.utils.CreditBalanceTracker
  */
 @Composable
 fun CreditAlertGate(refreshKey: Any?) {
-    val context = LocalContext.current
     var alert by remember { mutableStateOf<CreditAlert?>(null) }
     var balance by remember { mutableStateOf(0) }
 
@@ -40,6 +39,13 @@ fun CreditAlertGate(refreshKey: Any?) {
     }
 
     val shown = alert ?: return
+    CreditAlertDialog(shown, balance, onDismiss = { alert = null })
+}
+
+/** The low / out-of-credits dialog itself, shared by the result screens and the home screen. */
+@Composable
+fun CreditAlertDialog(shown: CreditAlert, balance: Int, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     val exhausted = shown == CreditAlert.EXHAUSTED
     AppDialog(
         title = if (exhausted) "You've run out of credits" else "Your credits are running low",
@@ -52,13 +58,13 @@ fun CreditAlertGate(refreshKey: Any?) {
         confirmText = "Open AI Vastra",
         cancelText = "Dismiss",
         onConfirm = {
-            alert = null
+            onDismiss()
             try {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://app.aivastra.com")))
             } catch (e: Exception) {
                 CrashReporter.recordException(e, "CreditAlertDialog")
             }
         },
-        onDismiss = { alert = null }
+        onDismiss = onDismiss
     )
 }

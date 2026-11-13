@@ -1,3 +1,305 @@
+# 2026-11-13 — Insights CSV export (local, not committed)
+
+- **Done:** "Export CSV" on three Insights sections (retailer and console): summary (funnel + cart abandonment + reliability/cost), lost demand (items,
+  then size and colour rows tagged by kind), out of stock. Built in the browser from the data already on screen (`lib/csv.ts`), so a file always equals
+  what the screen shows for that range and branch, and no API route was added. Text cells starting `= + - @` are prefixed with `'` so a merchant-typed
+  item name cannot run as a spreadsheet formula; UTF-8 BOM for Excel.
+- **Not done:** no audit row (unlike the customer export: these are aggregates, no personal data). Lists are capped at the screen's top 20, so the file is too. Not checked in a browser.
+
+# 2026-11-13 — Insights date compare (local, not committed)
+
+- **Done:** funnel and reliability KPI cards on Insights (retailer and console) show "vs. previous period" using the existing `previousRange`
+  (equally long run of days before the range). No API change: the client fetches the same endpoints for the previous window. Counts show % change;
+  failure rate shows percentage points; failure rate, wait and credits per unit treat a drop as good (`lib/delta.ts`, unit-tested).
+- **Not done:** lost-demand and out-of-stock tables have no compare (per-item lists). Not checked in a browser yet. Doubles the funnel and reliability requests.
+
+# 2026-11-13 — Staff-role browser pass (local, not committed)
+
+- **Seed added (kept):** `wf-staff@example.test` (password `Browserpass1`), staff at branch "WF Annex" with 3 sessions there; a second open cart `WFCARTQ3` at "WF Main".
+- **Checked as staff:** nav shows Dashboard, Insights, Catalogue, Bill a Cart, Devices; `/customers`, `/branches`, `/staff`, `/settings` redirect to the
+  dashboard; no branch picker on Insights; Insights and Dashboard show only the staff's branch (3 sessions, not the merchant's total); looking up the
+  other branch's cart code answers 404 (does not reveal it exists).
+- **Fixed:** the reliability card hint read "9 in 10 within —" when there is no wait data; it now hides the hint.
+- **Observed, not changed:** Peak hours stayed empty for freshly inserted sessions (the rollup catches up on its hourly 48h rebuild; sessions made through the
+  tablet go through the normal rollup). `/devices` is open to staff on purpose: the list is scoped to their own branch by the API, create/update need a merchant admin, and the page has a staff empty state (checked in code afterwards).
+
+# 2026-11-13 — Browser write-flow pass (local, not committed)
+
+- **Seed data (kept until asked):** `wf-merchant@example.test` (merchant "WF Test Stores") and `wf-console@example.test` (SUPER_ADMIN), password
+  `Browserpass1`; two branches, two catalog items with stock, an open cart, two refund requests. Local `tryon_dev` only.
+- **Flows exercised in the browser, each checked in the database:**
+  - Console add credits: confirm dialog shows the new balance and reason; balance 100 → 150, `credit_ledger` row, `merchant.credit_grant` audit row.
+  - Console refund requests: approve (balance +3, `REFUND_USER_REQUEST` ledger row, audit row) and reject with a note (note stored, audit row). Both
+    refusals the API gives (job not COMPLETED; no ledger charge to refund) show correctly inside the dialog.
+  - Merchant Bill a cart: code lookup, totals (₹2,499 + 2 × ₹4,599 = ₹11,697), "Mark all as billed" → cart `billed`, lines billed, 3 `sold` rows and 3
+    `sale_recorded` events (one per unit).
+- **Bug fixed:** the console's two `<dialog>`s (`components/hq/modal.tsx`, the refund detail dialog) opened in the top-left corner: the CSS reset zeroes
+  the margin a modal dialog centres with. Added `margin: 'auto'` to both; verified centred.
+- **Found, not fixed (needs a decision):** merchant-web's CSP `img-src` allows only self, loopback MinIO, `*.r2.cloudflarestorage.com` and the API
+  origin (`src/lib/csp.ts`), so presigned image URLs on any other host are blocked. Locally `R2_PUBLIC_PRESIGN_BASE` is `https://wa-dev-minio.aivastra.com`,
+  so the refund thumbnails and preview do not load. Production's presign host has not been checked against this list.
+- **Not covered:** staff-role scoping in the browser, and the tablet-side cart add.
+
+# 2026-11-13 — Insights queries measured on a large fixture (local scratch DB, no code change)
+
+- **Fixture** (scratch database, since dropped): one merchant with 500k sessions over 12 months across 25 branches, 40 other merchants with 12.5k each
+  (1M sessions, 3M tried + 143k sold items, 600k carts / 1.2M lines, 1M analytics events, 333k jobs), all migrations applied, `ANALYZE`d.
+- **Warm timings for the big merchant** (ms; funnel / lost demand / out of stock; others under 300):
+  - 30 days, all branches: 700 / 790 / 280.
+  - 30 days, one branch: 40 / 40 / 40.
+  - 12 months, all branches: 2,800 / 1,150 / 650.
+  - 12 months, one branch: 290 / 290 / 90.
+  First (cold) runs were up to 5.4s (30d) and 15.8s (12 months) from disk reads.
+- **Plans:** the 12-month all-branch funnel seq-scans because half the table matches (correct). At 30 days it still seq-scans `session_items`
+  and `carts` for a 41k-session window; 0.7s, so no index added (both are hot write tables). Revisit if a real merchant exceeds this fixture.
+- **Not measured:** concurrency (a dashboard load fires all four routes at once), and a production-sized Postgres config (the local container uses defaults).
+
+# 2026-11-13 — Insights: branch picker and per-account console view (local, not committed)
+
+- **Done:** `/admin/accounts/:id/insights/{funnel,lost-demand,out-of-stock,reliability}` (accounts.read, 404 for an unknown account) over the same
+  handlers as the merchant routes (`merchant/insights/handlers.ts`); an "Insights" section on the console account page, built from a shared
+  `InsightsSections` component the retailer page also uses. Test asserts the console response equals the merchant's own for the same account.
+- **Browser check:** seeded the local test merchant (items, carts, refused/viewed OOS events, stale stock); the console section renders all four
+  sections, no console errors, no overflow at 390px.
+- **Branch filter:** the console section has a branch picker (shown when the account has more than one branch); a test shows `branchId` narrows the console funnel.
+- **Open:** none for Insights beyond the production-scale caveats in the timing entry above. Not browser-checked after the picker was added (the test users were removed).
+
+# 2026-11-13 — Browser pass (Merchant Web + team console), fixes (local, not committed)
+
+- **Method:** Playwright (chromium) against the local dev stack with throwaway local users/data in `tryon_dev` (created via a script that was
+  deleted afterwards): every merchant page and every console page at desktop light/dark and 390px mobile, recording console errors, failed
+  requests and horizontal overflow.
+- **Found and fixed:**
+  - API crash: `/v1/jobs/stream` (SSE) left `subscribe()` un-caught, so a client leaving before the Redis subscribe resolved raised an
+    unhandled "Connection is closed" rejection and killed the whole API process. Fixed in `modules/jobs/sse.ts`; regression test in
+    `jobs-sse.test.ts` (fails without the fix).
+  - Hydration warning on every page (CSP nonce attribute on the theme script): `suppressHydrationWarning` on that tag.
+  - Mobile overflow on the retailer dashboard (funnel card had a fixed-width row: now wraps) and on the console account page (peak-hours
+    grid widened its grid track: `minmax(0, 1fr)`).
+- **Observed, not bugs:** `/customers` shows "customer data encryption is not configured" locally (no `CRM_DATA_KEY` in `.env`); the
+  dashboard funnel's tried ÷ sessions can exceed 100% (tries are counted per item, existing definition).
+- **Not done:** the browser pass covered rendering and errors only; no write flows (add credits, approve refund, billing a cart) were
+  exercised; Chat inbox/Dev API/Demo catalog are not in the console yet.
+
+# 2026-11-13 — Merchant Insights screen (local, not committed)
+
+- **Done:** `GET /v1/merchant/insights/{funnel,lost-demand,out-of-stock,reliability}` (source tables, same definitions as the
+  dashboard; staff forced to their branch), new server event `cart_refused_oos` written when a cart add is refused as out of stock,
+  Merchant Web `/insights` page and sidebar entry. Plan: `docs/superpowers/plans/2026-11-13-merchant-insights-screen.md`
+  (minimum tries 5, stale stock 14 days, server OOS event: all as recommended).
+- **Verified:** `merchant-insights` 11 tests (hand-computed fixture, dashboard parity, staff scope, cross-merchant isolation, junk
+  variantId, zero-division nulls); cart/analytics-ingest/analytics-rollup/merchant-analytics suites 83 passing; api and merchant-web
+  typecheck; merchant-web 137 tests.
+- **Failed / Not Done:** page not opened in a browser; no branch filter on the page (API accepts `branchId`); no `EXPLAIN` on a large
+  fixture yet; console reuse of the insights (plan T8) not built.
+
+# 2026-11-13 — Console: cross-account overview and per-account peak hours (local, not pushed)
+
+- **Done:**
+  - API: `GET /admin/analytics/overview` (accounts.read): totals, daily points and the top 10 accounts across every merchant, with its
+    own SQL (the per-merchant queries always carry `merchant_id`) using the same metric definitions (`iso` and `NOT_REFUNDED` are now
+    exported from `merchant/analytics/queries.ts`). `GET /admin/accounts/:id/analytics/heatmap` reuses `heatmapCells`.
+  - Console: `/hq/overview` (now the console home and first sidebar item) and a Peak hours section on the account page.
+  - Also this session: console copies of Payments, Refund requests, Held batches, Contact requests and Credit analysis (admin-web
+    pages untouched, they stay until the user says to retire them); spec Q3 answered (shoppers can add to the cart in kiosk mode).
+  - Verified: `admin-analytics-overview` 3 tests, including parity (overview totals = sum of the per-account summaries);
+    regression `admin-account-analytics merchant-analytics analytics-heatmap` 53; api typecheck; merchant-web typecheck and 134 tests.
+- **Failed / Not Done:** no console page opened in a browser. Chat inbox, Dev API, Demo catalog sets and Studio users not copied
+  (Chat inbox needs `NEXT_PUBLIC_CHATBOT_URL`, a CSP change and a compose build arg first). The overview ranks by sessions and does
+  not show accounts with credits but no sessions in the window beyond the top 10.
+
+# 2026-11-12 — Account console phase 4: TOTP two-factor for admins, option B (local, not pushed)
+
+- **Decision:** option B. Roles holding `accounts.read` or `credits.grant` must use TOTP once `ADMIN_MFA_ENFORCE=true`; anyone who
+  has enrolled is challenged regardless of the flag. Applies to `/admin/auth/login`, so admin-web and the console share it.
+- **Done:**
+  - Migration **`0271_admin_totp`** (additive: `admin_users.totp_secret_enc`, `totp_enabled_at`, `totp_last_step`,
+    `totp_recovery_hashes`; applied to local `tryon_dev` only).
+  - API `modules/admin/totp.ts` (RFC 6238, no dependency), `mfa.ts`, `mfa.routes.ts`: login returns `{mfaRequired, mfaToken}` with
+    no cookie or access token; `POST /admin/auth/mfa/verify` (code or one-time recovery code), `/mfa/enroll/start|confirm`
+    (secret held sealed in Redis until a code proves it; 8 recovery codes shown once, stored hashed), `POST
+    /admin/users/:id/mfa/reset` (SUPER_ADMIN, audited, revokes that admin's sessions). Step token is `aud admin-mfa`,
+    `kind mfa`: no route accepts it as an access token. Replay guarded by `totp_last_step`; 5 wrong codes lock for 15 min.
+    Audited: `admin.mfa.enroll`, `admin.mfa.recovery_used`, `admin.mfa.reset`.
+  - merchant-web: one `/login` page shows the code / setup / recovery-code step (`/api/auth/mfa` BFF). admin-web: same step
+    on its login page (`MfaStep`).
+  - Verified: 6 TOTP unit tests (RFC 6238 vectors) + 6 integration tests; merchant-web 132 tests + typecheck; admin-web typecheck + build.
+- **Failed / Not Done:**
+  - No browser check of either login. No QR code (the key is shown for manual entry or an `otpauth://` link).
+  - No admin-web button for the SUPER_ADMIN reset (API only). `apps/admin-mobile` (paused) cannot complete an MFA login.
+  - Enrolled admins who are not gated (e.g. SUPPORT who enrolled) signing in through merchant-web get "no console access" after the code.
+- **Open Questions / outside the repo (before enabling in production):**
+  - Provision `ADMIN_MFA_KEY` (32 bytes base64) in `.env.production` and back it up: losing it locks every enrolled admin out.
+  - Ship migration 0271 via CI, announce, enrol SUPER_ADMINs first, then set `ADMIN_MFA_ENFORCE=true`.
+
+# 2026-11-12 — Account console phase 3 (read side): Shopify stores under an account (local, not pushed)
+
+- **Done:** `GET /admin/accounts/:id/shopify-stores` (guard `accounts.read`; identity + credits + try-on count, no tokens or shop contact),
+  using the existing link `shopify_stores.owner_user_id = merchants.user_id` that the account list already uses, so no migration.
+  Account detail shows the stores. Verified: `admin-account-analytics` 5 tests; merchant-web typecheck.
+- **Not Done:** attaching an unowned store to an account from the console (a write that needs a product decision: who may link,
+  audit, what happens to credits ownership); the standalone Shopify stores/purchases pages stay in admin-web for now.
+
+# 2026-11-12 — Account console phase 2: per-account analytics (local, not pushed)
+
+- **Done:**
+  - `merchant/analytics/handlers.ts` (`buildSummary`/`buildTimeseries`/`buildBreakdown`) shared by the merchant routes and new
+    `GET /admin/accounts/:id/analytics/{summary,timeseries,breakdown}` (guard `accounts.read`, 404 for an unknown account,
+    whole-merchant scope with optional branch/staff/device filters).
+  - Console account detail gets an Analytics section reusing RangePicker, KpiCard, TrendChart and BreakdownTable.
+  - Verified: `admin-account-analytics` 4 tests, `merchant-analytics` 44 (regression after the refactor); merchant-web typecheck, 126 tests, build.
+- **Failed / Not Done:** no browser check; cross-merchant overview (totals across all accounts) not built; heatmap not shown per account.
+
+# 2026-11-12 — Account console phase 1: hardening, accounts, invite, /hq UI (local, not pushed)
+
+- **Done:**
+  - API: admin-audience tokens are refused on every user/portal route (`ADMIN_AUDIENCE`); minting credits needs the new
+    `credits.grant` permission (migration **0269**, seeded from `credits.write` holders + SUPER_ADMIN); `accounts.read`
+    (migration **0270**, SUPER_ADMIN + ADMIN) gates `GET /admin/accounts` (health list). Owner invite: creating a
+    merchant emails a 72h single-use set-password link (Redis `email:invite:{token}`, `email:invite:user:{id}`);
+    `GET /admin/merchants/:id/invite` and `POST .../invite/resend`; `POST /v1/auth/accept-invite`.
+  - Merchant Web: `/set-password` (+ `/api/auth/accept-invite` BFF); `/login` as an explicit separate mode, own BFF
+    under `/hq/api/auth/*`, own cookie `hq_refresh` (path `/hq`, 24h) and own in-memory token (`lib/hq-api.ts`);
+    middleware gates `/hq/*` on that cookie only; `/hq/accounts` list and `/hq/accounts/[id]` (owner, invite status +
+    resend, credits + grant, branches, tablets).
+  - Verified: API integration tests for the above; merchant-web typecheck, 123 unit tests, `next build`.
+- **Failed / Not Done:**
+  - No page opened in a browser; the BFF login/refresh round trip against a running API is untested. Resend's real
+    delivery of the invite email is untested.
+  - Not enforced: a console account must not also be a merchant owner/staff (check production overlap read-only first).
+  - TOTP 2FA for console accounts (gate before production), per-account analytics, Shopify linking, retiring admin-web pages.
+- **Open Questions / outside the repo:**
+  - Which undecided admin-web pages move to the console; whether admin-web's credit-grant button stays during overlap.
+  - Production needs `MERCHANT_WEB_URL` set for the invite link and migrations 0269/0270 shipped via CI.
+
+# 2026-11-12 — CRM phase 4: customer list, profile, export, segments, deletion (local, not pushed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-crm-phase4-customer-screens.md` (decisions K1–K5).
+  - Migration **`0268_customer_segments`** (additive; applied to local `tryon_dev` only).
+  - API `modules/crm/customers.routes.ts`, merchant admin only (staff 403): list (name, exact phone via the keyed hash,
+    branch, marketing consent, last-visit range, min visits; keyset cursor), profile with full number (audited
+    `customer.view`), CSV export (audited `customer.export` with filter + row count; formula-injection guarded; capped
+    at 20,000 rows), saved segments (same filter schema), and delete on request (`customer.delete`: photos first, then
+    the same wipe as retention, shared via `wipeShoppers`/`purgeJobPhotos`).
+  - Merchant Web `/customers` (admin nav): filters, table with masked phones, profile panel, export, segments, delete.
+  - Verified: `crm-customers` 9 + `crm-retention` 5 (after the refactor); merchant-web typecheck, lint, 117 tests.
+- **Failed / Not Done:**
+  - No page opened in a browser. Export is built in memory (fine to the 20,000-row cap, not beyond).
+  - Deleting a customer does not touch Meta: a message already sent to their WhatsApp stays on their phone.
+- **Open Questions / outside the repo:**
+  - Legal review of the deletion wording and the retention of consent history after deletion.
+
+# 2026-11-12 — CRM phase 3: sizes, variants, per-branch stock, cart (local, committed, not pushed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-crm-phase3-variants-stock-cart.md`, slices 3a–3c. Decided: in kiosk mode the
+    shopper can add to the cart (spec Q3); photo retention covers all in-store photos (built in phase 2's sweeper).
+  - Migrations **`0266_sizes_variants_stock`** (size sets seeded: tops, bottoms, kids, free size;
+    `garment_subcategories.size_set_id`) and **`0267_carts`**. Additive; applied to local `tryon_dev` only.
+  - API: variants (custom size derived server-side), per-branch stock (staff own branch, feed-owned rows refuse manual
+    edits), tablet sizes with availability/other branches/buy-online, admin size sets; cart (idempotent add, out-of-stock
+    refused, remove), billing on the tablet (assisted) or by cart code in Merchant Web (kiosk); each billed unit writes
+    the existing `sold` row + `sale_recorded`, so dashboards count it (parity test); hourly abandon sweeper (24h).
+  - Tablet: Add to cart / Cart on result and download screens, barcodes on screen. Merchant Web: sizes and stock in
+    the product editor; "Bill a Cart" page.
+  - Verified: `inventory` 8, `cart` 9 (incl. dashboard parity), regression `analytics- device- merchant-analytics crm-
+    inventory cart` 22 files / 211 tests, catalogue + garment-type suites 11 / 82; api unit 122 / 1,235; workspace
+    typecheck (admin-mobile excluded); merchant-web 114 tests; Android build + unit tests; `biome check .` no errors.
+- **Failed / Not Done:**
+  - No screen opened on a device or in a browser. No CSV import for variants/stock yet (spec §6.2 BulkUploadModal);
+    admin-web has no screen for size sets (API only).
+- **Open Questions / outside the repo:**
+  - v1 checkout handoff chosen as barcodes on screen + cart code (spec Q1 had been deferred with POS).
+
+# 2026-11-12 — CRM phase 2: shopper identification on the merchant's own WhatsApp (local, committed, not pushed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-crm-identification-mode-a.md` Tasks 1–7 and the profile half of Task 6.
+  - Migration **`0265_crm_shopper_identification`** (additive: 4 new tables, nullable `instore_sessions.shopper_id`
+    + FK + partial index; production `instore_sessions` had 0 rows on 2026-11-12). Applied to local `tryon_dev` only.
+  - API: merchant admin connects the brand's WhatsApp number (checked against Graph before saving; token and app
+    secret sealed, never returned or audited) and sets retention + when to ask; device `identify` start/status; the
+    shared webhook routes a merchant number's traffic to `crm:inbound` before the seller lane; consumer handles
+    `LOOKS <code>` → shopper + session link → two consent buttons → looks as images; `SEND`, `STOP`. Profile retention
+    sweeper (hourly). New env `CRM_DATA_KEY`, `CRM_IDENTIFY_ENABLED` (in `.env.production.example`, unset/false).
+  - Tablet test app: "Get looks on WhatsApp" pill on the Download screen (QR + live status; 409 → points to the
+    download QR); `identify_shown` event. Merchant-web Settings: WhatsApp connection form and Customer data card.
+  - Verified: `crm-settings` 8, `crm-identify` 12 (real webhook → stream → consumer, Graph stubbed), `crm-retention` 3;
+    seller-lane `messaging- whatsapp- admin-whatsapp` + `device- analytics-` 32 files / 223 tests; api unit 122 / 1,235;
+    merchant-web 112 tests, typecheck, lint; Android `assembleDebug` + unit tests; `biome check .` no errors.
+- **Failed / Not Done:**
+  - Never run against a real WhatsApp number: no merchant WABA exists for testing, and Meta needs a public webhook URL.
+  - Merchant-web settings and the tablet pill were not opened in a browser/device.
+- **Open Questions / outside the repo:**
+  - Photo retention scope decided 2026-11-12: **all in-store session photos** (customer photo, result, thumbnail) of
+    sessions older than the merchant's period; built in `crm/retention.ts` (`crm-retention` 5 tests). Jobs stay in
+    history without images.
+  - Consent wording ships as `v0-draft` and needs legal review with the DPA (spec Q6) before `CRM_IDENTIFY_ENABLED=true`.
+  - Per merchant, outside the repo: their Meta app's webhook must point at `/v1/whatsapp/webhook` with our verify token,
+    and subscribe to `messages`. Production needs `CRM_DATA_KEY` provisioned before any merchant connects.
+
+# 2026-11-12 — Merchant Android test app on the device model + mode-A decisions (local, committed, not pushed)
+
+- **Done:**
+  - Spec `2026-11-12-instore-crm-analytics-design.md` §4.1 (new): mode A (merchant's own WhatsApp) is primary, B not built
+    in phase 2; shopper verified by tap-to-chat QR first, typed OTP later; merchant numbers connected by manual entry
+    first (Embedded Signup later); inbound routed by `phone_number_id`. Q4 answered (merchant must choose retention), Q5 moot.
+  - Plan `docs/superpowers/plans/2026-11-12-merchant-android-device-mode.md` (HLD build-order step 4, test app only):
+    API device twins `GET /v1/device/catalog`, `/catalog/subcategories`, `/tryon/photo-url`, `POST|GET
+    /v1/device/tryon/upload-sessions[/:token]` (shared functions with the owner routes) and `shareUrl` on device job status.
+    `apps/virtual_tryon_android_merchant` now pairs with a code, runs kiosk/assisted sessions, creates try-ons in the
+    session, records Wishlist/Sold (+ seller undo) and uploads tablet events. `apps/virtual_tryon_android_multi_flow`
+    (the shipped app) untouched.
+  - Verified: `device-tablet` 5 new tests; `device- analytics- merchant-catalog merchant-tryon merchant-org
+    merchant-analytics` 29 files / 274 tests; api typecheck; `biome check .` no errors; Android `assembleDebug` and
+    `testDebugUnitTest` (EventQueueCore 8 tests). The app's exact request sequence driven against the local API for
+    both kiosk and assisted sessions, all expected statuses; the resulting `analytics_events` rows are complete.
+  - Local `tryon_dev` only: test merchant "Heatmap Check Co" set `demo_data=true`, one catalogue item (+ subcategory)
+    copied into it from "ND testing", one staff user `staff-check-*@local.test`, two paired test devices.
+- **Failed / Not Done:**
+  - Not run on a device or emulator: no emulator system image is installed (`~/Android/Sdk` has the emulator binary
+    and KVM, but no `system-images`/AVD) and no tablet was connected. UI (pairing screen, menu, Wishlist/Sold overlay)
+    is compiled, not seen.
+  - Quick Try-On is hidden on paired tablets (a session `tried` row needs a catalogue item).
+- **Open Questions / outside the repo:**
+  - Plan M3 was revised in execution: `/v1/auth/login-mobile` is the AiVastra admin app's login; staff use
+    `/v1/auth/login` with the token kept in memory only.
+
+# 2026-11-12 — Analytics phase 1: events foundation (local, not committed)
+
+- **Done:**
+  - Plan `docs/superpowers/plans/2026-11-12-analytics-events-foundation.md`, Tasks 1–8. Spec
+    `docs/superpowers/specs/2026-11-12-instore-crm-analytics-design.md` §7.1 updated with decisions D1–D4.
+  - Migration **`0264_analytics_events_foundation`**: `analytics_events`, `analytics_buckets`,
+    `analytics_rollup_state`, plus an idempotent backfill from `instore_sessions` / `session_items`. Applied to
+    local `tryon_dev` only. Production read-only check (2026-11-12, `default_transaction_read_only=on`):
+    `instore_sessions` 0, `session_items` 0, `jobs` with a session 0, so the backfill is a no-op there; prod's latest
+    applied migration is 0263 (same `created_at` as the local journal) and `origin/dev` has no newer migration,
+    so 0264 is free as of this date.
+  - Server events in the same transaction as their source write (session start/end incl. idle sweeper, try-on
+    charge, wishlist, sale, both void paths). `POST /v1/device/events` for tablet events (allowlist, per-event
+    rejection, per-device rate limit, dedupe on client id, skew clamp, 7-day drop).
+  - `startAnalyticsRollup` (60s, 15-minute UTC buckets, hourly 48h safety pass) wired in `apps/api/src/main.ts`.
+  - `GET /v1/merchant/analytics/heatmap` and the merchant-web "Peak Hours" card on the overview dashboard.
+    Existing summary/timeseries/breakdown endpoints unchanged (D2); `analytics-parity.test.ts` proves bucket totals
+    equal them for merchant/branch/staff scopes.
+  - Verified: integration `analytics- device- merchant-analytics merchant-tryon merchant-quick-tryon merchant-org`
+    21 files / 203 tests pass; api unit 121 files / 1,230; types 80; merchant-web 21 files / 107; workspace typecheck
+    (admin-mobile excluded) clean; `biome check .` no errors.
+  - Manual, local only: API + merchant-web dev against `tryon_dev`, 3 kiosk sessions and one `qr_shown` event via
+    curl with a seeded device; after one tick the dashboard showed "Busiest: Thu 4 PM (3 sessions)", matching
+    the IST time. Screenshots at desktop and 390px width; the card scrolls inside itself. Servers stopped.
+    Local seed left in `tryon_dev`: merchant "Heatmap Check Co" (`heatmap-check-*@local.test`), branch, device.
+- **Failed / Not Done:**
+  - Hover readout not exercised in a browser (only the default "Busiest" readout and the metric toggle were).
+  - Dark mode screenshot rendered identical to light: the app's theme does not follow `prefers-color-scheme`, so
+    the dark tokens were not seen. The card uses only `C`/`M` tokens.
+- **Open Questions / outside the repo:**
+  - Pre-existing, not from this work: the overview page overflows horizontally by 19px at 390px width (the
+    bottom-nav "Settings" link).
+  - Production `jobs` has no `completed_at` index; the rollup relies on `jobs_session_idx` after autovacuum ANALYZE.
+
 # 2026-11-10 — merchant-web prod port moved 3010 → 3200 (local edit, not committed)
 
 - **Failed / Not Done:**

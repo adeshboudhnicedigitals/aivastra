@@ -124,36 +124,31 @@ export function TrendChart({ points }: { points: AnalyticsPoint[] }): React.Reac
           })}
         </svg>
       </div>
-      <table
-        style={{
-          position: 'absolute',
-          width: 1,
-          height: 1,
-          overflow: 'hidden',
-          clip: 'rect(0 0 0 0)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        <caption>Daily sessions, try-ons and sold items</caption>
-        <thead>
-          <tr>
-            <th scope="col">Date</th>
-            <th scope="col">Sessions</th>
-            <th scope="col">Try-ons</th>
-            <th scope="col">Sold</th>
-          </tr>
-        </thead>
-        <tbody>
-          {points.map((p) => (
-            <tr key={p.date}>
-              <th scope="row">{p.date}</th>
-              <td>{p.sessions}</td>
-              <td>{p.tried}</td>
-              <td>{p.sold}</td>
+      {/* sr-only on a wrapper: a <table> ignores width/height/overflow, so styling it directly lets
+          its rows stick out below the page. */}
+      <div className="sr-only">
+        <table>
+          <caption>Daily sessions, try-ons and sold items</caption>
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Sessions</th>
+              <th scope="col">Try-ons</th>
+              <th scope="col">Sold</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {points.map((p) => (
+              <tr key={p.date}>
+                <th scope="row">{p.date}</th>
+                <td>{p.sessions}</td>
+                <td>{p.tried}</td>
+                <td>{p.sold}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

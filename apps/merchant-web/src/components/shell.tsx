@@ -1,11 +1,14 @@
 'use client';
 import {
   BarChart3,
+  Contact,
   LayoutDashboard,
+  Lightbulb,
   LogOut,
   MonitorSmartphone,
   Package,
   Settings,
+  ShoppingCart,
   Store,
   Users,
 } from 'lucide-react';
@@ -31,6 +34,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, adminOnly: false, group: 'MAIN' },
+  { href: '/insights', label: 'Insights', icon: Lightbulb, adminOnly: false, group: 'MAIN' },
   {
     href: '/performance',
     label: 'Performance',
@@ -39,6 +43,8 @@ const NAV: NavItem[] = [
     group: 'MAIN',
   },
   { href: '/catalogue', label: 'Catalogue', icon: Package, adminOnly: false, group: 'MAIN' },
+  { href: '/carts', label: 'Bill a Cart', icon: ShoppingCart, adminOnly: false, group: 'MAIN' },
+  { href: '/customers', label: 'Customers', icon: Contact, adminOnly: true, group: 'MAIN' },
   { href: '/branches', label: 'Branches', icon: Store, adminOnly: true, group: 'MAIN' },
   { href: '/staff', label: 'Staff', icon: Users, adminOnly: true, group: 'MAIN' },
   {
@@ -252,7 +258,10 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
   const items = NAV.filter((n) => !n.adminOnly || (me && canManageOrg(me.role)));
 
   return (
-    <div style={{ display: 'flex', minHeight: '100dvh', background: 'var(--c-side-nav)' }}>
+    <div
+      className="md:h-dvh md:overflow-hidden"
+      style={{ display: 'flex', minHeight: '100dvh', background: 'var(--c-side-nav)' }}
+    >
       <Sidebar items={items} />
       <nav
         aria-label="Main"
@@ -281,7 +290,7 @@ export function Shell({ children }: { children: React.ReactNode }): React.ReactE
       </nav>
       <main
         tabIndex={-1}
-        className="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 md:m-5 md:ml-0 md:rounded-[20px] md:p-5"
+        className="flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24 md:m-5 md:ml-0 mw-scroll-hidden md:min-h-0 md:overflow-y-auto md:rounded-[20px] md:p-5"
         style={{ background: C.bg }}
       >
         <TopBar />

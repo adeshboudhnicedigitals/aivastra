@@ -4,6 +4,7 @@ import { JOB_SOURCE } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { recordEvent } from '../analytics/record.js';
 import { getActiveUnlimitedPlan } from '../credits/unlimited-plan.js';
 import { chargeInStoreTryon } from '../device/entitlement.js';
 import { atomicMerchantDeduct } from './ledger.js';
@@ -15,6 +16,8 @@ export interface JobAttribution {
   sessionId: string;
   staffId: string | null;
   catalogItemId: string;
+  /** The session's mode, for the analytics event only; never written to jobs. */
+  channel: 'kiosk' | 'assisted';
 }
 
 function attributionColumns(a?: JobAttribution) {
@@ -56,6 +59,19 @@ async function chargeJob(
     .update(schema.instoreSessions)
     .set({ lastActivityAt: new Date() })
     .where(eq(schema.instoreSessions.id, a.sessionId));
+  // Same transaction as the charge and the `tried` row. The outcome (completed / failed) is
+  // NOT emitted anywhere: the rollup derives it from jobs (plan decision D1).
+  await recordEvent(tx, {
+    event: 'tryon_requested',
+    merchantId,
+    branchId: a.branchId,
+    deviceId: a.deviceId,
+    staffId: a.staffId,
+    sessionId: a.sessionId,
+    catalogItemId: a.catalogItemId,
+    channel: a.channel,
+    props: { jobId },
+  });
 }
 
 interface CreateMerchantTryonJobInput {

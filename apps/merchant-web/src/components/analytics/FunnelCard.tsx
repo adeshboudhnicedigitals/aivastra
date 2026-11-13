@@ -110,7 +110,7 @@ export function FunnelCard({
     { from: 'Try-on', to: 'Sold', pct: formatRatio(sold, tried) },
   ];
   return (
-    <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 16, alignItems: 'center' }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
       <div style={{ flex: '0 0 230px', display: 'flex', flexDirection: 'column' }}>
         {STEPS.map((s, i) => (
           <div

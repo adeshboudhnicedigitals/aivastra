@@ -17,12 +17,17 @@ describe('admin-approval', () => {
     await c?.stop();
   });
 
+  // Admin-console shape (audience 'admin'): only /admin/* accepts it.
   async function registerAndVerify(email: string) {
+    return createVerifiedUserToken(app, email, { audience: 'admin' });
+  }
+  // A user-portal session (no audience), for the /v1 routes a user calls on themselves.
+  async function registerUser(email: string) {
     return createVerifiedUserToken(app, email);
   }
 
   it('regular user can request admin', async () => {
-    const { token, userId } = await registerAndVerify('req1@test.com');
+    const { token, userId } = await registerUser('req1@test.com');
     const res = await app.inject({
       method: 'POST',
       url: '/v1/auth/request-admin',
@@ -38,7 +43,7 @@ describe('admin-approval', () => {
   });
 
   it('re-request while pending is idempotent', async () => {
-    const { token } = await registerAndVerify('req2@test.com');
+    const { token } = await registerUser('req2@test.com');
     await app.inject({
       method: 'POST',
       url: '/v1/auth/request-admin',
@@ -54,7 +59,7 @@ describe('admin-approval', () => {
   });
 
   it('active admin cannot re-request', async () => {
-    const { token, userId } = await registerAndVerify('req3@test.com');
+    const { token, userId } = await registerUser('req3@test.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'ADMIN', status: 'active' });
     const res = await app.inject({
       method: 'POST',
@@ -87,7 +92,7 @@ describe('admin-approval', () => {
   });
 
   it('rejected user can re-apply', async () => {
-    const { token, userId } = await registerAndVerify('req6@test.com');
+    const { token, userId } = await registerUser('req6@test.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'ADMIN', status: 'rejected' });
     const res = await app.inject({
       method: 'POST',
@@ -107,7 +112,7 @@ describe('admin-approval', () => {
     await app.db
       .insert(schema.adminUsers)
       .values({ userId: superId, role: 'SUPER_ADMIN', status: 'active' });
-    const { token: pendingToken } = await registerAndVerify('pending-lr@test.com');
+    const { token: pendingToken } = await registerUser('pending-lr@test.com');
     await app.inject({
       method: 'POST',
       url: '/v1/auth/request-admin',
@@ -130,7 +135,7 @@ describe('admin-approval', () => {
       .insert(schema.adminUsers)
       .values({ userId: superId, role: 'SUPER_ADMIN', status: 'active' });
     const { token: reqToken, userId: requestUserId } =
-      await registerAndVerify('approve-target@test.com');
+      await registerUser('approve-target@test.com');
     await app.inject({
       method: 'POST',
       url: '/v1/auth/request-admin',
@@ -155,8 +160,7 @@ describe('admin-approval', () => {
     await app.db
       .insert(schema.adminUsers)
       .values({ userId: superId, role: 'SUPER_ADMIN', status: 'active' });
-    const { token: reqToken, userId: requestUserId } =
-      await registerAndVerify('reject-target@test.com');
+    const { token: reqToken, userId: requestUserId } = await registerUser('reject-target@test.com');
     await app.inject({
       method: 'POST',
       url: '/v1/auth/request-admin',

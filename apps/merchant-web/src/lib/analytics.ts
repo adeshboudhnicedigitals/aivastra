@@ -1,6 +1,8 @@
 import type {
   AnalyticsBreakdownBy,
   AnalyticsBreakdownResponse,
+  AnalyticsHeatmapMetric,
+  AnalyticsHeatmapResponse,
   AnalyticsSummaryResponse,
   AnalyticsTimeseriesResponse,
 } from '@aivastra/types';
@@ -53,6 +55,28 @@ export function useAnalyticsTimeseries(range: AnalyticsRange | null, branchId?: 
   return useQuery({
     queryKey: ['analytics', 'timeseries', range?.from, range?.to, branchId ?? null],
     queryFn: () => fetchTimeseries(range as AnalyticsRange, branchId),
+    enabled: range !== null,
+    staleTime: STALE_MS,
+  });
+}
+
+export const fetchHeatmap = (
+  range: AnalyticsRange,
+  metric: AnalyticsHeatmapMetric,
+  branchId?: string,
+) =>
+  apiFetch<AnalyticsHeatmapResponse>(
+    `/v1/merchant/analytics/heatmap?${qs(range, { metric, branchId })}`,
+  );
+
+export function useAnalyticsHeatmap(
+  range: AnalyticsRange | null,
+  metric: AnalyticsHeatmapMetric,
+  branchId?: string,
+) {
+  return useQuery({
+    queryKey: ['analytics', 'heatmap', metric, range?.from, range?.to, branchId ?? null],
+    queryFn: () => fetchHeatmap(range as AnalyticsRange, metric, branchId),
     enabled: range !== null,
     staleTime: STALE_MS,
   });

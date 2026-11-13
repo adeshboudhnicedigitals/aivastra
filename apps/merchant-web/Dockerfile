@@ -20,12 +20,14 @@ COPY packages/storage/package.json packages/storage/
 COPY packages/types/package.json packages/types/
 RUN pnpm install --no-frozen-lockfile --filter @aivastra/merchant-web...
 
-# Only NEXT_PUBLIC_API_URL is a build arg. API_URL (server-side BFF target) is
+# NEXT_PUBLIC_API_URL and NEXT_PUBLIC_MEDIA_ORIGINS are the build args (both feed the CSP). API_URL (server-side BFF target) is
 # read at process start, so changing it needs a restart, not a rebuild.
 FROM deps AS build
 COPY . .
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_MEDIA_ORIGINS=
+ENV NEXT_PUBLIC_MEDIA_ORIGINS=$NEXT_PUBLIC_MEDIA_ORIGINS
 RUN pnpm --filter @aivastra/types build
 RUN pnpm --filter @aivastra/merchant-web build
 

@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { withIdempotency } from '../../lib/idempotency.js';
 import { recordAudit } from '../admin/audit.js';
+import { recordEvent, recordSaleVoided } from '../analytics/record.js';
 import { merchantCanReferenceCatalogItem } from '../merchant/resolve-tryon-garment.js';
 import { createGarmentTryonJob } from '../merchant/tryon-job-service.js';
 import { deviceAuditActor } from './audit.js';
@@ -144,6 +145,18 @@ export async function deviceRoutes(app: FastifyInstance) {
               after: { mode, staffId, deviceId: d.deviceId },
               request: req,
             });
+            // Inside withIdempotency: a replayed start returns the stored session and runs
+            // none of this, so it writes no second event.
+            await recordEvent(tx, {
+              event: 'session_started',
+              merchantId: d.merchantId,
+              branchId: row!.branchId,
+              deviceId: d.deviceId,
+              staffId,
+              sessionId: row!.id,
+              channel: mode,
+              occurredAt: row!.startedAt,
+            });
             return row!;
           }),
       );
@@ -172,6 +185,19 @@ export async function deviceRoutes(app: FastifyInstance) {
             resourceType: 'instore_session',
             resourceId: id,
             request: req,
+          });
+          // Only when this call actually ended it: losing a race with the idle sweeper (which
+          // writes its own 'idle' event) leaves row undefined.
+          await recordEvent(tx, {
+            event: 'session_ended',
+            merchantId: row.merchantId,
+            branchId: row.branchId,
+            deviceId: row.deviceId,
+            staffId: row.staffId,
+            sessionId: row.id,
+            channel: row.mode,
+            props: { reason: 'done' },
+            occurredAt: row.endedAt ?? undefined,
           });
         }
         return row ?? s;
@@ -228,6 +254,21 @@ export async function deviceRoutes(app: FastifyInstance) {
             request: req,
           });
         }
+        // Staff matches queries.ts ITEM_STAFF: a sale is the seller's (s.staffId, the only
+        // staff who can sell here); the device writes wishlists with no item staff, so a
+        // wishlist falls back to the session's assisting staff, which is the same s.staffId.
+        await recordEvent(tx, {
+          event: body.action === 'sold' ? 'sale_recorded' : 'item_wishlisted',
+          merchantId: s.merchantId,
+          branchId: s.branchId,
+          deviceId: s.deviceId,
+          staffId: s.staffId,
+          sessionId: s.id,
+          catalogItemId: body.catalogItemId,
+          channel: s.mode,
+          props: { sessionItemId: row!.id },
+          occurredAt: row!.createdAt,
+        });
         return row!;
       });
       return reply.code(201).send(item);
@@ -245,7 +286,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     async (req) => {
       const d = req.device!;
       const { id, itemId } = req.params as { id: string; itemId: string };
-      await loadOwnSession(d.deviceId, id);
+      const s = await loadOwnSession(d.deviceId, id);
       const member = await app.resolveStaffFromRequest(req);
       return app.db.transaction(async (tx) => {
         const [item] = await tx
@@ -284,6 +325,7 @@ export async function deviceRoutes(app: FastifyInstance) {
           after: { voidedBy: member.userId },
           request: req,
         });
+        await recordSaleVoided(tx, s, row!);
         return row!;
       });
     },
@@ -333,6 +375,7 @@ export async function deviceRoutes(app: FastifyInstance) {
               sessionId: session.id,
               staffId: session.staffId,
               catalogItemId: merchantCatalogItemId,
+              channel: session.mode,
             },
           );
         },
@@ -366,7 +409,15 @@ export async function deviceRoutes(app: FastifyInstance) {
               .then((r) => r.url)
               .catch(() => null)
           : null;
-      return { id: job.id, status: job.status, errorCode: job.errorCode, resultUrl };
+      // shareUrl duplicates resultUrl for the Android app, whose status model reads that name
+      // from the owner route (device-mode plan, M6).
+      return {
+        id: job.id,
+        status: job.status,
+        errorCode: job.errorCode,
+        resultUrl,
+        shareUrl: resultUrl,
+      };
     },
   );
 }

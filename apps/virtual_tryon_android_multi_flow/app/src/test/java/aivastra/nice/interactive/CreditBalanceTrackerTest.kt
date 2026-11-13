@@ -36,3 +36,20 @@ class CreditBalanceTrackerTest {
         assertNull(CreditBalanceTracker.evaluate(40, 40))
     }
 }
+
+class CreditBalanceTrackerOnOpenTest {
+    @Test
+    fun alreadyLowUserIsToldOncePerLevel() {
+        CreditBalanceTracker.alertOnOpen(500) // singleton: reset announced state
+        assertEquals(CreditAlert.LOW, CreditBalanceTracker.alertOnOpen(10))
+        assertNull(CreditBalanceTracker.alertOnOpen(10))
+        assertEquals(CreditAlert.EXHAUSTED, CreditBalanceTracker.alertOnOpen(0))
+        assertNull(CreditBalanceTracker.alertOnOpen(0))
+    }
+
+    @Test
+    fun healthyBalanceStaysSilentAndResets() {
+        assertNull(CreditBalanceTracker.alertOnOpen(500))
+        assertEquals(CreditAlert.LOW, CreditBalanceTracker.alertOnOpen(5))
+    }
+}

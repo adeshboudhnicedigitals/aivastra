@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV home-screen banner (required by the LEANBACK_LAUNCHER filter). Built from the
+     launcher icon layers so it stays in sync with the brand colours. 320x180dp is the TV spec. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item
+        android:drawable="@mipmap/ic_launcher_foreground"
+        android:gravity="center"
+        android:width="180dp"
+        android:height="180dp" />
+</layer-list>

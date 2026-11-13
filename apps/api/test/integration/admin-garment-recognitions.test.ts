@@ -148,7 +148,7 @@ describe('admin garment recognitions', () => {
   });
 
   it('rejects a non-admin caller with 403', async () => {
-    const { token } = await createVerifiedUserToken(app, 'plain@x.com');
+    const { token } = await createVerifiedUserToken(app, 'plain@x.com', { audience: 'admin' });
     const res = await app.inject({
       method: 'GET',
       url: '/admin/garment-recognitions',
