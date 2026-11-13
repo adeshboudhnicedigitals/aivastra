@@ -9,7 +9,7 @@
     "start": "node --env-file=../../.env dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run --exclude 'test/integration/**'",
+    "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "biome check src/",
     "postman:generate": "tsx --env-file=../../.env src/scripts/generate-postman.ts",
