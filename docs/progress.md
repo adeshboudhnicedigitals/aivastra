@@ -1,3 +1,13 @@
+# 2026-11-13 — Staff-role browser pass (local, not committed)
+
+- **Seed added (kept):** `wf-staff@example.test` (password `Browserpass1`), staff at branch "WF Annex" with 3 sessions there; a second open cart `WFCARTQ3` at "WF Main".
+- **Checked as staff:** nav shows Dashboard, Insights, Catalogue, Bill a Cart, Devices; `/customers`, `/branches`, `/staff`, `/settings` redirect to the
+  dashboard; no branch picker on Insights; Insights and Dashboard show only the staff's branch (3 sessions, not the merchant's total); looking up the
+  other branch's cart code answers 404 (does not reveal it exists).
+- **Fixed:** the reliability card hint read "9 in 10 within —" when there is no wait data; it now hides the hint.
+- **Observed, not changed:** Peak hours stayed empty for freshly inserted sessions (the rollup catches up on its hourly 48h rebuild; sessions made through the
+  tablet go through the normal rollup). `/devices` is open to staff (nav and page); confirm that is intended.
+
 # 2026-11-13 — Browser write-flow pass (local, not committed)
 
 - **Seed data (kept until asked):** `wf-merchant@example.test` (merchant "WF Test Stores") and `wf-console@example.test` (SUPER_ADMIN), password

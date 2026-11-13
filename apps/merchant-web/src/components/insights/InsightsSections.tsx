@@ -347,7 +347,9 @@ export function InsightsSections({
             <KpiCard
               label="Typical wait"
               value={waitText(r?.waitMs.p50 ?? null)}
-              hint={r ? `9 in 10 within ${waitText(r.waitMs.p90)}` : undefined}
+              hint={
+                r && r.waitMs.p90 !== null ? `9 in 10 within ${waitText(r.waitMs.p90)}` : undefined
+              }
               loading={loadingR}
             />
             <KpiCard
