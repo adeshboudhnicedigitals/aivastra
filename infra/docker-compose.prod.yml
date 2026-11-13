@@ -196,6 +196,7 @@ services:
       dockerfile: apps/merchant-web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_MEDIA_ORIGINS: ${NEXT_PUBLIC_MEDIA_ORIGINS:-}
     container_name: aivastra-prod-merchant-web
     restart: unless-stopped
     environment:

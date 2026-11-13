@@ -375,9 +375,10 @@ tablet-reported ids are forgeable.
 
 Traps:
 - **CSP** (`src/lib/csp.ts`) is built per request from this build's env. `img-src` allows only
-  self, loopback MinIO, `*.r2.cloudflarestorage.com` and the API origin, so presigned images on any
-  other host (e.g. a dev tunnel) are blocked. Check the presign host against it when an environment's
-  images go missing.
+  self, loopback MinIO, `*.r2.cloudflarestorage.com`, the API origin and `NEXT_PUBLIC_MEDIA_ORIGINS`
+  (build arg, comma-separated, empty by default), so presigned images on any other host (e.g. a dev
+  tunnel) are blocked. When an environment's images go missing, compare `R2_PUBLIC_PRESIGN_BASE`
+  with that list and rebuild after changing the var.
 - Tailwind's reset zeroes margins, which a modal `<dialog>` uses to centre itself: give a native
   dialog `margin: 'auto'` (see `components/hq/modal.tsx`).
 - A CSS grid track defaults to min-content; use `minmax(0, 1fr)` for a column holding something that
