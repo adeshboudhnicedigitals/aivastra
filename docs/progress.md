@@ -19,7 +19,8 @@
   `InsightsSections` component the retailer page also uses. Test asserts the console response equals the merchant's own for the same account.
 - **Browser check:** seeded the local test merchant (items, carts, refused/viewed OOS events, stale stock); the console section renders all four
   sections, no console errors, no overflow at 390px.
-- **Open:** `EXPLAIN` on a large fixture for the per-item queries; console section has no branch filter yet.
+- **Branch filter:** the console section has a branch picker (shown when the account has more than one branch); a test shows `branchId` narrows the console funnel.
+- **Open:** none for Insights beyond the production-scale caveats in the timing entry above. Not browser-checked after the picker was added (the test users were removed).
 
 # 2026-11-13 — Browser pass (Merchant Web + team console), fixes (local, not committed)
 

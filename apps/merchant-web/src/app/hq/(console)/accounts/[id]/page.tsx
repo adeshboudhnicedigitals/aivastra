@@ -394,7 +394,7 @@ export default function AccountDetail() {
           </div>
 
           <div style={{ marginBottom: 16 }}>
-            <AccountInsights merchantId={d.id} />
+            <AccountInsights merchantId={d.id} branches={org.data?.branches ?? []} />
           </div>
 
           <div style={{ display: 'grid', gap: 16 }}>

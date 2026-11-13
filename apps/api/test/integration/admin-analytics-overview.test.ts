@@ -229,6 +229,35 @@ describe('GET /admin/accounts/:id/insights/*', () => {
     });
   });
 
+  it('narrows to one branch when branchId is given', async () => {
+    const a = await account({
+      name: 'Insight Branches',
+      sessions: ['2026-10-01T05:00:00Z', '2026-10-02T05:00:00Z'],
+      sold: 0,
+      tried: 1,
+      credits: 0,
+    });
+    const other = await createTestBranch(app, a.merchantId);
+    const od = await createTestDevice(app, a.merchantId, other.id);
+    await app.db.insert(schema.instoreSessions).values({
+      merchantId: a.merchantId,
+      branchId: other.id,
+      deviceId: od.deviceId,
+      staffId: null,
+      mode: 'kiosk',
+      startedAt: new Date('2026-10-03T05:00:00Z'),
+      lastActivityAt: new Date('2026-10-03T05:00:00Z'),
+    });
+    const admin = await adminAuthHeader(app);
+    const all = await get(`/admin/accounts/${a.merchantId}/insights/funnel?${RANGE}`, admin);
+    const one = await get(
+      `/admin/accounts/${a.merchantId}/insights/funnel?${RANGE}&branchId=${other.id}`,
+      admin,
+    );
+    expect(all.json()).toMatchObject({ sessions: 3 });
+    expect(one.json()).toMatchObject({ sessions: 1 });
+  });
+
   it('needs accounts.read and a real account', async () => {
     const m = await createTestMerchant(app);
     for (const name of NAMES) {
