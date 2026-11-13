@@ -6,7 +6,7 @@
   other branch's cart code answers 404 (does not reveal it exists).
 - **Fixed:** the reliability card hint read "9 in 10 within —" when there is no wait data; it now hides the hint.
 - **Observed, not changed:** Peak hours stayed empty for freshly inserted sessions (the rollup catches up on its hourly 48h rebuild; sessions made through the
-  tablet go through the normal rollup). `/devices` is open to staff (nav and page); confirm that is intended.
+  tablet go through the normal rollup). `/devices` is open to staff on purpose: the list is scoped to their own branch by the API, create/update need a merchant admin, and the page has a staff empty state (checked in code afterwards).
 
 # 2026-11-13 — Browser write-flow pass (local, not committed)
 
