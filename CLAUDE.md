@@ -88,6 +88,8 @@ changed dropdown — use a styled, accessible dropdown for the app you're in:
   that file renders pixel-faithful mockups of real marketplace listing pages
   (`AmazonMobileTemplate` et al.), so its `<select>` is deliberately styled to
   match Amazon's own chrome, not Aivastra's. Don't "fix" that one.
+- `apps/merchant-web` — use `PremiumSelect` (`src/components/ui/premium-select.tsx`), as in
+  `catalogues-web`; the console's searchable lists use the same component.
 - `apps/shopify` — use Polaris's `Select`/`Combobox`, never a raw `<select>`;
   Polaris *is* this app's design system.
 - `apps/admin-web` — use `SearchableSelect`
@@ -168,6 +170,8 @@ apps/chatbot           Fastify + WS support-ticket system — no LLM in the answ
                        currently unused — kept for possible future agent-assist reuse
 apps/catalogues-web    Next.js 15 — user-facing UI (pkg name @aivastra/web)
 apps/admin-web         Vite + React SPA — internal admin panel (pkg name @aivastra/admin)
+apps/merchant-web      Next.js 15 — retailer app (in-store analytics, Insights, carts, CRM) plus the
+                       `/hq` team console (pkg name @aivastra/merchant-web, port 3010)
 apps/shopify           Vite + React + Polaris — embedded Shopify admin SPA
 apps/shopify-extension Shopify app config + theme app extension (Liquid/JS/CSS)
 packages/db            Drizzle schema + migrations + createDb() factory
@@ -337,6 +341,52 @@ only when the pose has `hasLower`/`hasShoes`). Submits to `/v1/jobs/tryon`.
 **`NEXT_PUBLIC_BASE_PATH`** supports subdirectory deployment; all internal asset
 references and redirects must account for it, and the middleware strips it before
 route matching.
+
+---
+
+## Merchant web and the team console (`apps/merchant-web`)
+
+Two surfaces in one Next.js app, with **separate sessions on purpose**.
+
+- **Retailer app** (`src/app/(app)`): dashboard, Insights, performance, catalogue, Bill a Cart,
+  customers, branches, staff, devices, settings. Auth is a BFF like `catalogues-web`
+  (`src/app/api/auth`, httpOnly cookies, in-memory access token in `src/lib/api.ts`). Roles are
+  merchant `admin` (all branches) and `staff` (own branch only); admin-only pages and nav entries
+  are gated by `canManageOrg`, and the API enforces the same scope in `resolveScope` /
+  `requireMerchantAdmin` — never rely on the UI hiding something.
+- **Team console** (`src/app/hq`): AiVastra staff only, calling `/admin/*` through its own client
+  (`src/lib/hq-api.ts`, its own token and `/hq/api/auth` refresh route). A console token must
+  never ride a retailer request, nor the reverse. Nav entries are filtered by the caller's
+  permission (`can(...)`) so a role is never shown a page whose API call would only 403.
+  The login page is shared; the account type decides where you land.
+- Console pages are **copies** of their `admin-web` counterparts. Leave `admin-web` untouched
+  unless asked to retire a page (see `docs/superpowers/specs/2026-11-12-merchant-web-account-console-design.md`).
+- Both surfaces share components (`components/analytics`, `components/insights`), so a change to a
+  card changes it in the retailer app and the console.
+
+**Analytics and Insights** (`/v1/merchant/analytics/*`, `/v1/merchant/insights/*`, and the console's
+`/admin/accounts/:id/analytics|insights/*`) run the **same handlers** behind two scopes; keep it that
+way so the two cannot disagree. Definitions that must not drift: sessions, tried and sold count by
+the *session's* `started_at`; sold excludes voided; credits are session-attributed jobs net of
+refunds (`NOT_REFUNDED`); the peak-hours heatmap reads `analytics_buckets` (15-minute UTC buckets,
+so it trails live activity by about two minutes) while Insights and the dashboard read the source
+tables. Out-of-stock demand joins `analytics_events.props->>'variantId'` as **text, never cast** —
+tablet-reported ids are forgeable.
+
+Traps:
+- **CSP** (`src/lib/csp.ts`) is built per request from this build's env. `img-src` allows only
+  self, loopback MinIO, `*.r2.cloudflarestorage.com` and the API origin, so presigned images on any
+  other host (e.g. a dev tunnel) are blocked. Check the presign host against it when an environment's
+  images go missing.
+- Tailwind's reset zeroes margins, which a modal `<dialog>` uses to centre itself: give a native
+  dialog `margin: 'auto'` (see `components/hq/modal.tsx`).
+- A CSS grid track defaults to min-content; use `minmax(0, 1fr)` for a column holding something that
+  scrolls internally, or the card widens on a phone.
+- SSE and Redis: an ioredis `subscribe()` that rejects after the client left is an unhandled
+  rejection that kills the API. Always `.catch` it (`modules/jobs/sse.ts`).
+- Cart codes use the alphabet `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no `0 1 I L O`); a hand-seeded code
+  outside it is rejected by the Bill a Cart screen.
+- Browser checks: with Playwright use `domcontentloaded` plus a wait, not `networkidle` (SSE never settles).
 
 ---
 
@@ -528,11 +578,11 @@ template determines which inputs that pose supports.
 | `uploads/` | `/v1/uploads/presign` — records `upload:owner:{key}` in Redis (24h) for ownership binding |
 | `results/` | `/v1/results/:id` public result access |
 | `payments/` | Razorpay order creation + webhook |
-| `merchant/` | merchant self-serve (API key regen, webhook config, credits) |
+| `merchant/` | merchant self-serve (API key regen, webhook config, credits), org (branches, staff, devices), analytics (`analytics/`) and Insights (`insights/`: funnel, lost demand, out of stock, reliability); shared handlers also serve the console |
 | `kiosk/` | `/v1/kiosk/*` — device-authed customer-facing tryon |
 | `support/`, `backgrounds/`, `dev/` | contact form; user-uploaded backgrounds; public API-key-authed developer API |
 | `shopify/` | install/token exchange, merchant `/me` + `/settings` + `/shoppers`, activation and product sync, widget-config + republish, onboarding (theme-editor deep link), customer job creation, credit-pack purchase + auto-refill enrolment, GDPR + billing webhooks, `/customer/event`, `/analytics` |
-| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings, prod-snapshot (SUPER_ADMIN-only status/download for the local-dev snapshot's DB dump — `docs/local-dev-snapshot-runbook.md`) |
+| `admin/` | full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, merchants, kiosk devices, saree + Shopify settings, prod-snapshot (SUPER_ADMIN-only status/download for the local-dev snapshot's DB dump — `docs/local-dev-snapshot-runbook.md`), the account console (`accounts`, `overview`, per-account `analytics`/`insights`/`shopify-stores`; `accounts.read`) and admin TOTP (`/admin/auth/mfa/*`, `/admin/users/:id/mfa/reset`) |
 
 ### Background loops in the api process
 
@@ -642,6 +692,11 @@ hangs on streaming responses.
   never the body, and may only use the `ANALYTICS_CLIENT_EVENTS` allowlist
   (`packages/types/src/analytics-events.ts`); server event names from a client are
   a 400. Rollups delete and rebuild a bucket, never increment one.
+- Admin second factor: once `ADMIN_MFA_ENFORCE=true`, any admin whose role holds `accounts.read` or
+  `credits.grant` must enrol TOTP and pass a code at login; anyone already enrolled is challenged
+  regardless. It fails closed — enforcement on without `ADMIN_MFA_KEY` is a 503, never a skip.
+  The console's per-account read routes are gated by `accounts.read` and write no audit row; its
+  writes (credit grants, refund decisions) write `audit_logs` in the same transaction.
 - CRM data is the merchant's (Data Fiduciary; AiVastra is the processor). A shopper is unique on
   `(merchant_id, phone_hash)` and is never joined across merchants. Phone numbers exist only
   encrypted; channel tokens and app secrets are never returned by an API or written to
@@ -666,6 +721,7 @@ hangs on streaming responses.
 | `WORKER_API_KEY` | dispatcher |
 | `PIXVERSE_*`, `VIDEO_CONCURRENCY` | dispatcher (catalog video lane) |
 | `SHOPIFY_API_KEY` / `_SECRET` / `_APP_URL` / `_SCOPES` / `_TOKEN_ENC_KEY` | api |
+| `ADMIN_MFA_KEY`, `ADMIN_MFA_ENFORCE` | api — admin TOTP. Key is 32 bytes base64 and seals each authenticator secret; losing or rotating it locks every enrolled admin out until a SUPER_ADMIN resets their factor. Enforcement flag accepts only `'true'`; off by default |
 | `CRM_DATA_KEY`, `CRM_IDENTIFY_ENABLED` | api — CRM shopper identification (32-byte key; flag accepts only `'true'`) |
 | `SHOPIFY_ALLOW_TEST_SUBSCRIPTIONS` | api — lifts the `TEST_GRANT_LIMIT` bound on credits granted for Shopify *test* charges (development stores grant up to that bound regardless). Accepts only the literal `'true'` (deliberately not `z.coerce.boolean()`, which turns `'false'` into `true`). Off in production |
 | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_BASE_PATH` | catalogues-web (build time) |
