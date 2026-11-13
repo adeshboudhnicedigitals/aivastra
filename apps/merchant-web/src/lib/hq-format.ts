@@ -52,3 +52,17 @@ export const INVITE_LABEL: Record<string, string> = {
   accepted: 'Password set',
   expired: 'Invite expired',
 };
+
+/** Days of credit left at the 30-day average burn, or null when there is no burn to project from. */
+export function runwayDays(balance: number, burn30d: number): number | null {
+  const daily = burn30d / 30;
+  if (daily <= 0) return null;
+  return Math.floor(Math.max(0, balance) / daily);
+}
+
+export function runwayLabel(balance: number, burn30d: number): string {
+  const d = runwayDays(balance, burn30d);
+  if (d === null) return 'No recent use';
+  if (d === 0) return 'Under a day left';
+  return d >= 365 ? 'Over a year left' : `About ${d} day${d === 1 ? '' : 's'} left`;
+}

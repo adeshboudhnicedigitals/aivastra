@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountHealth, relativeTime } from './hq-format';
+import { accountHealth, relativeTime, runwayDays, runwayLabel } from './hq-format';
 
 const NOW = Date.parse('2026-11-12T12:00:00Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -30,4 +30,19 @@ describe('accountHealth', () => {
   });
   it('ignores inactive accounts', () =>
     expect(accountHealth({ ...base, isActive: false, creditBalance: 0 })).toBe('ok'));
+});
+
+describe('runway', () => {
+  it('projects days from the 30-day burn', () => {
+    expect(runwayDays(300, 300)).toBe(30);
+    expect(runwayDays(5, 300)).toBe(0);
+    expect(runwayDays(100, 0)).toBeNull();
+    expect(runwayDays(-4, 300)).toBe(0);
+  });
+  it('words it for people', () => {
+    expect(runwayLabel(100, 0)).toBe('No recent use');
+    expect(runwayLabel(5, 300)).toBe('Under a day left');
+    expect(runwayLabel(10, 300)).toBe('About 1 day left');
+    expect(runwayLabel(100000, 300)).toBe('Over a year left');
+  });
 });

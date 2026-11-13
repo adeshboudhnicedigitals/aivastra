@@ -30,7 +30,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           nonce={nonce}
           // biome-ignore lint/security/noDangerouslySetInnerHtml: theme flash prevention requires an inline script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('theme');var d=t==='dark'||(!t&&location.pathname.indexOf('/hq')>=0&&matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
           }}
         />
       </head>
