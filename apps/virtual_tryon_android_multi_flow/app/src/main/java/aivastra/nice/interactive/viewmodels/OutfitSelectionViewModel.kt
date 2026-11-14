@@ -34,13 +34,21 @@ data class OutfitSelectionUiState(
         } ?: products
 }
 
-/** Same rule as the server's `search` param: substring of label or SKU, case-insensitive. */
+// Same cap as the server (catalog-search.ts), so a pasted paragraph can't turn into dozens of checks.
+private const val MAX_SEARCH_TERMS = 8
+
+/**
+ * Same rule as the server's `search` param: every typed word must appear (any order, case-insensitive)
+ * in the label or SKU, so "red shirt" finds "Cotton Shirt - Red". A blank query keeps everything.
+ */
 fun List<CatalogProduct>.matchingSearch(query: String): List<CatalogProduct> {
-    val term = query.trim()
-    if (term.isEmpty()) return this
-    return filter {
-        it.label?.contains(term, ignoreCase = true) == true ||
-            it.sku?.contains(term, ignoreCase = true) == true
+    val terms = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.take(MAX_SEARCH_TERMS)
+    if (terms.isEmpty()) return this
+    return filter { product ->
+        terms.all { term ->
+            product.label?.contains(term, ignoreCase = true) == true ||
+                product.sku?.contains(term, ignoreCase = true) == true
+        }
     }
 }
 
