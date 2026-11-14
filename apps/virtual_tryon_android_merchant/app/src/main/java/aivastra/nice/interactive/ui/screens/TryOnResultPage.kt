@@ -88,6 +88,9 @@ fun TryOnResultPage(
 
     BackHandler(onBack = onBack)
 
+    // Low-credit / out-of-credit heads-up, re-checked for each new result. Skipped in
+    // previews, which have no session or network.
+
     // Pinch-to-zoom / pan / double-tap-to-reset on the result image. Pan is clamped to the
     // overflow the current zoom level actually produces (half the extra scaled size in each
     // direction), so the image can never be dragged off past its own edge, and it collapses

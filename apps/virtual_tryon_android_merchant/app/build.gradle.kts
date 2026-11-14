@@ -112,6 +112,8 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
+    // Legacy GoogleSignInClient: fallback when Credential Manager hangs or errors on a device.
+    implementation(libs.play.services.auth)
     implementation(libs.play.app.update)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

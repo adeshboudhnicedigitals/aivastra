@@ -2,7 +2,16 @@ package aivastra.nice.interactive.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.app.Activity
+import android.content.ContextWrapper
+import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
+import androidx.core.app.ActivityCompat
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -131,11 +140,16 @@ fun PhotoUploadPage(
 
     var photoSourceType by remember { mutableStateOf<String?>(null) }
 
+    // Set once the system dialog has answered "deny"; lets us tell "ask again" from "blocked".
+    var cameraPermissionDenied by remember { mutableStateOf(false) }
+
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
             screenState = PhotoUploadScreenState.INTERNAL_CAMERA
+        } else {
+            cameraPermissionDenied = true
         }
     }
 
@@ -170,8 +184,45 @@ fun PhotoUploadPage(
         if (hasCameraPermission()) {
             screenState = PhotoUploadScreenState.INTERNAL_CAMERA
         } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            // After a denial with no rationale left ("don't ask again", or two denials) the system
+            // dialog never appears and launch() returns instantly, so the tap would do nothing.
+            // Send the customer to the app's Settings page instead.
+            var host = context
+            while (host is ContextWrapper && host !is Activity) host = host.baseContext
+            val blocked = cameraPermissionDenied &&
+                (host as? Activity)?.let {
+                    !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+                } == true
+            if (blocked) {
+                try {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .setData(Uri.fromParts("package", context.packageName, null))
+                    )
+                } catch (e: Exception) {
+                    CrashReporter.recordException(e, "PhotoUploadPage")
+                }
+            } else {
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
         }
+    }
+
+    // Permission granted from Settings while this page sat on the choice screen: pick the camera
+    // up on return instead of leaving the customer on the fallback cards.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                screenState == PhotoUploadScreenState.CHOICE_SELECTION &&
+                photoSourceType == null &&
+                hasCameraPermission()
+            ) {
+                screenState = PhotoUploadScreenState.INTERNAL_CAMERA
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val launchGalleryPicker = {
