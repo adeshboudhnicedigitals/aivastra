@@ -24,8 +24,9 @@ vi.mock('../../src/modules/shopify/service.js', async (importOriginal) => {
         name: 'Notify Test',
         email: 'owner@example.com',
         myshopifyDomain: `${shop.domain}.myshopify.com`,
+        createdAt: '2026-11-13T12:15:00Z',
         shopOwnerName: 'Asha Rao',
-        billingAddress: null,
+        billingAddress: { phone: '+91 98765 43210', country: 'India' },
         plan: { partnerDevelopment: false },
       },
     })),
@@ -68,6 +69,9 @@ describe('shopify install operator notification', () => {
     expect(to).toEqual(['ops@example.com', 'founder@example.com']);
     expect(notice.shopDomain).toBe('notify-test.myshopify.com');
     expect(notice.shopName).toBe('Notify Test');
+    expect(notice.country).toBe('India');
+    expect(notice.phone).toBe('+91 98765 43210');
+    expect(notice.shopCreatedAt).toBe('2026-11-13T12:15:00Z');
 
     await provision();
     expect(sendShopifyInstallNotifyEmail).toHaveBeenCalledTimes(1);
