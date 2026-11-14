@@ -22,6 +22,10 @@ export interface ShopDetails {
   email: string;
   phone?: string;
   address?: string;
+  /** Billing country name, kept apart from `address` so notices can show it on its own. */
+  country?: string;
+  /** When the shop was created on Shopify (ISO 8601) — not when our app was installed. */
+  shopCreatedAt?: string;
   ianaTimezone?: string;
   /** shop.plan.partnerDevelopment — see the column comment in the db schema. */
   partnerDevelopment: boolean;
@@ -151,6 +155,7 @@ const SHOP_DETAILS = `
       id
       name
       email
+      createdAt
       myshopifyDomain
       primaryDomain { host }
       shopOwnerName
@@ -166,6 +171,7 @@ interface ShopDetailsData {
     id: string;
     name: string;
     email: string;
+    createdAt?: string | null;
     myshopifyDomain: string;
     primaryDomain?: { host?: string | null } | null;
     shopOwnerName?: string | null;
@@ -215,6 +221,8 @@ export async function provisionShopifyStore(
     address: [s.billingAddress?.address1, s.billingAddress?.city, s.billingAddress?.country]
       .filter(Boolean)
       .join(', '),
+    country: s.billingAddress?.country ?? undefined,
+    shopCreatedAt: s.createdAt ?? undefined,
     ianaTimezone: s.ianaTimezone ?? undefined,
     // Defaults to false when the field is absent for any reason: a missing
     // answer must never be read as "test charges are fine here", because that
@@ -305,6 +313,8 @@ async function notifyOperatorsOfInstall(
       ownerName: details.shopOwner,
       email: details.email,
       phone: details.phone,
+      country: details.country,
+      shopCreatedAt: details.shopCreatedAt,
       timezone: details.ianaTimezone,
       partnerDevelopment: details.partnerDevelopment,
     });

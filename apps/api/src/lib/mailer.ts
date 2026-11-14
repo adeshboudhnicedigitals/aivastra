@@ -259,7 +259,24 @@ export async function sendShopifyWelcomeEmail(
   });
 }
 
-function shopifyInstallNotifyHtml(p: ShopifyInstallNotice): string {
+/** "13 Nov 2026, 5:45 pm IST" for an ISO timestamp; empty when absent or unparseable. */
+function formatIst(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const text = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d);
+  return `${text} IST`;
+}
+
+export function shopifyInstallNotifyHtml(p: ShopifyInstallNotice): string {
   const row = (label: string, value?: string | null) =>
     value?.trim()
       ? `<tr><td style="padding:6px 12px 6px 0;font-size:14px;color:#888;white-space:nowrap;vertical-align:top;">${label}</td><td style="padding:6px 0;font-size:14px;color:#1a1a1a;">${escapeHtml(value)}</td></tr>`
@@ -274,6 +291,8 @@ function shopifyInstallNotifyHtml(p: ShopifyInstallNotice): string {
       ${row('Owner', p.ownerName)}
       ${row('Email', p.email)}
       ${row('Phone', p.phone)}
+      ${row('Country', p.country)}
+      ${row('Store created', formatIst(p.shopCreatedAt))}
       ${row('Timezone', p.timezone)}
       ${row('Plan', p.partnerDevelopment ? 'Partner development store (test)' : 'Live store')}
     </table>
@@ -288,6 +307,9 @@ export type ShopifyInstallNotice = {
   ownerName?: string | null;
   email?: string | null;
   phone?: string | null;
+  country?: string | null;
+  /** ISO 8601 moment the shop was created on Shopify; shown in IST. */
+  shopCreatedAt?: string | null;
   timezone?: string | null;
   partnerDevelopment: boolean;
 };
