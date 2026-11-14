@@ -300,13 +300,23 @@ fun InternalCameraView(
         // absolute maximum — which is slow to capture and encode and more than try-on needs.
         if (!hasAppliedDefaultPictureSize && settings.pictureSize == null && sizes.isNotEmpty()) {
             val pixels = { size: Size -> size.width.toLong() * size.height.toLong() }
-            val preferred = sizes.filter { pixels(it) <= DEFAULT_MAX_PICTURE_PIXELS }.maxByOrNull(pixels)
+            val underCap = sizes.filter { pixels(it) <= DEFAULT_MAX_PICTURE_PIXELS }
+            // The app crops every photo to 9:16 portrait, so a 16:9 sensor size keeps all its
+            // pixels while a 4:3 one of the same area loses a third of them.
+            val isWide = { size: Size ->
+                val ratio = maxOf(size.width, size.height).toFloat() / minOf(size.width, size.height)
+                kotlin.math.abs(ratio - 16f / 9f) < 0.05f
+            }
+            val preferred = underCap.filter(isWide).maxByOrNull(pixels)
+                ?: underCap.maxByOrNull(pixels)
                 ?: sizes.minByOrNull(pixels)
             if (preferred != null) {
                 settings = settings.copy(pictureSize = preferred)
             }
-            hasAppliedDefaultPictureSize = true
         }
+        // Flipped even when no size was picked: the bind effect below waits for this, so the
+        // camera is bound once with the final size instead of bound, then torn down and rebound.
+        hasAppliedDefaultPictureSize = true
     }
 
     // Live preview of the chosen look. A hardware layer paint tints the PreviewView's TextureView
@@ -330,10 +340,13 @@ fun InternalCameraView(
         settings.captureQuality,
         settings.resolutionRatio,
         settings.surfaceStreamType,
-        settings.pictureSize
+        settings.pictureSize,
+        hasAppliedDefaultPictureSize
     ) {
         if (isPreview) return@LaunchedEffect
         val provider = cameraProvider ?: return@LaunchedEffect
+        // Wait for the default picture size to be chosen — see the sizes effect above.
+        if (!hasAppliedDefaultPictureSize) return@LaunchedEffect
 
         previewView.implementationMode = when (settings.surfaceStreamType) {
             SurfaceStreamTypeOption.SURFACE_VIEW -> PreviewView.ImplementationMode.PERFORMANCE
@@ -352,8 +365,16 @@ fun InternalCameraView(
         } else {
             minOf(CAPTURE_JPEG_QUALITY, settings.captureQuality.toJpegQuality())
         }
+        // MAXIMIZE_QUALITY runs a full AF/AE precapture sequence inside takePicture (measured ~0.6s
+        // on a phone) on top of the focus lock capturePhoto already does, so phones take the
+        // latency mode. USB/kiosk cameras keep it: that is what fixed their blurry captures.
+        val captureMode = if (hasUsbCamera(context) || isKioskDevice(context)) {
+            ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+        } else {
+            ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+        }
         val captureBuilder = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setCaptureMode(captureMode)
             .setJpegQuality(jpegQuality)
             .setResolutionSelector(resolutionSelector)
             // Kiosk boxes are often fixed-mount with no accelerometer, so CameraX's own
@@ -897,18 +918,12 @@ fun InternalCameraView(
                                     scaleY = tileScale
                                 }
                                 .clip(CircleShape)
-                                .background(
-                                    if (selected) {
-                                        Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100)))
-                                    } else {
-                                        Brush.linearGradient(
-                                            listOf(Color.Black.copy(alpha = 0.5f), Color.Black.copy(alpha = 0.5f))
-                                        )
-                                    }
-                                )
+                                // Same grey fill selected or not — only the stroke carries the
+                                // primary colour, so the selected filter reads without a filled blob.
+                                .background(Color.Black.copy(alpha = 0.5f))
                                 .border(
                                     width = if (selected) sdp(R.dimen._2sdp) else 1.dp,
-                                    color = if (selected) Color.White else Color.White.copy(alpha = 0.35f),
+                                    color = if (selected) Color(0xFFE59B27) else Color.White.copy(alpha = 0.35f),
                                     shape = CircleShape
                                 )
                         ) {
@@ -1042,7 +1057,9 @@ private fun capturePhoto(
             // Kiosk/fixed-mount cameras often sit with AF/AE not yet converged between shots;
             // re-locking on the frame center right before the shutter is what actually fixes
             // the "blurry, washed out" kiosk captures (mirrors what the legacy CameraX activity did).
+            val t0 = android.os.SystemClock.elapsedRealtime()
             lockFocusAndExposure(camera, previewView)
+            val tFocus = android.os.SystemClock.elapsedRealtime()
             capture.targetRotation = currentSurfaceRotation(context)
             onShutter()
 
@@ -1065,6 +1082,8 @@ private fun capturePhoto(
                 )
             }
 
+            val tSaved = android.os.SystemClock.elapsedRealtime()
+
             val fixedUri = fixImageRotationFromUri(
                 context = context,
                 imageUri = savedUri,
@@ -1074,6 +1093,11 @@ private fun capturePhoto(
                 adjustments = adjustments
             )
 
+            Log.i(
+                "InternalCameraView",
+                "capture timing: focus=${tFocus - t0}ms takePicture=${tSaved - tFocus}ms " +
+                    "postProcess=${android.os.SystemClock.elapsedRealtime() - tSaved}ms"
+            )
             onCaptured(fixedUri)
         } catch (e: Exception) {
             Log.e("InternalCameraView", "Photo capture failed", e)
@@ -1095,11 +1119,16 @@ private fun applyDefaultExposure(camera: Camera) {
     }
 }
 
-private const val FOCUS_LOCK_TIMEOUT_MS = 700L
+private const val FOCUS_LOCK_TIMEOUT_MS = 400L
+private const val FOCUS_LOCK_MAX_TIMEOUTS = 2
 
-// Default capture size cap (pixels). The highest sensor size is slow to capture and encode and far
-// more than the try-on needs; a customer can still pick a larger size in the camera settings.
-private const val DEFAULT_MAX_PICTURE_PIXELS = 8_000_000L
+// Consecutive focus-lock timeouts per lens facing; reset by any lock that converges.
+private val focusLockTimeouts = mutableMapOf<Int, Int>()
+
+// Default capture size cap (pixels) — about 1080x1920, which is what the try-on consumes. The
+// kiosk mini PC's SoC spent seconds encoding/decoding 8MP frames only to crop them to 9:16; a
+// customer can still pick a larger size in the camera settings.
+private const val DEFAULT_MAX_PICTURE_PIXELS = 2_200_000L
 
 // Quality used for every JPEG this screen writes. Visually indistinguishable from 100 but encodes
 // faster and produces a much smaller file to process and upload.
@@ -1116,9 +1145,18 @@ private suspend fun lockFocusAndExposure(camera: Camera?, previewView: PreviewVi
             FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE or FocusMeteringAction.FLAG_AWB
         ).setAutoCancelDuration(5, TimeUnit.SECONDS).build()
 
+        // Most USB/UVC cameras have no AF/AE metering control, so the request can never converge
+        // and would just burn the whole timeout below before every shot.
+        if (!cam.cameraInfo.isFocusMeteringSupported(action)) return
+
+        // A camera that timed out twice in a row (measured: a phone's front camera burned the full
+        // 700ms before every shot) will not converge now either, so stop paying that wait.
+        val lens = cam.cameraInfo.lensFacing
+        if ((focusLockTimeouts[lens] ?: 0) >= FOCUS_LOCK_MAX_TIMEOUTS) return
+
         // Bounded: a slow-to-converge kiosk camera can otherwise hold the shot for seconds. On
         // timeout the shot goes ahead with whatever focus the camera has reached by then.
-        withTimeoutOrNull(FOCUS_LOCK_TIMEOUT_MS) {
+        val converged = withTimeoutOrNull(FOCUS_LOCK_TIMEOUT_MS) {
             suspendCancellableCoroutine<Unit> { cont ->
                 val future = cam.cameraControl.startFocusAndMetering(action)
                 future.addListener(
@@ -1126,7 +1164,9 @@ private suspend fun lockFocusAndExposure(camera: Camera?, previewView: PreviewVi
                     ContextCompat.getMainExecutor(previewView.context)
                 )
             }
+            true
         }
+        focusLockTimeouts[lens] = if (converged == true) 0 else (focusLockTimeouts[lens] ?: 0) + 1
     } catch (e: Exception) {
         Log.e("InternalCameraView", "Focus/exposure lock failed", e)
     }
@@ -1340,6 +1380,78 @@ fun hasUsbCamera(context: Context): Boolean {
     }
 }
 
+// Camera ids at or above this come from the external (USB) camera provider.
+private const val EXTERNAL_CAMERA_ID_BASE = 100
+
+// The kiosk mini PC's panel is natively landscape and mounted upright; its system rotation is locked
+// to 90 (outside the app the UI is upright). A manifest `portrait` request maps to rotation 270 on
+// this device — 180 degrees the other way — so the screen flips upside-down the moment the app
+// opens. For exactly that device (natively landscape panel + external camera + system rotation
+// locked to 90) ask for REVERSE_PORTRAIT instead, which Android maps to rotation 90. Returns null
+// for everything else so the manifest's `portrait` stays in force there.
+fun kioskReversePortraitOrientation(context: Context): Int? {
+    return try {
+        @Suppress("DEPRECATION")
+        val display = (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+        val size = android.graphics.Point()
+        @Suppress("DEPRECATION")
+        display.getRealSize(size)
+        val rotated = display.rotation == Surface.ROTATION_90 || display.rotation == Surface.ROTATION_270
+        // Real size is reported in the current rotation; swap back to get the natural one.
+        val naturalLandscape = if (rotated) size.y > size.x else size.x > size.y
+        val systemRotation = android.provider.Settings.System.getInt(
+            context.contentResolver,
+            android.provider.Settings.System.USER_ROTATION,
+            Surface.ROTATION_0
+        )
+        if (naturalLandscape && systemRotation == Surface.ROTATION_90 && hasExternalCamera(context)) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+// True for a natively landscape panel the OS is holding portrait (display rotation 90/270 while the
+// real display size reads portrait). A natively portrait phone/tablet never satisfies this — at
+// rotation 90/270 its real size reads landscape — so those keep the standard code path.
+fun isLandscapePanelInPortrait(context: Context): Boolean {
+    return try {
+        @Suppress("DEPRECATION")
+        val display = (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+        val rotation = display.rotation
+        if (rotation != Surface.ROTATION_90 && rotation != Surface.ROTATION_270) return false
+        val size = android.graphics.Point()
+        @Suppress("DEPRECATION")
+        display.getRealSize(size)
+        size.y > size.x
+    } catch (e: Exception) {
+        false
+    }
+}
+
+// USB/UVC modules come from Android's external camera provider. They usually report
+// LENS_FACING_EXTERNAL (see resolveCameraSelector), but the BigdroidOS mini PC's module reports
+// FRONT instead — what still marks it is its camera id, because the external provider numbers
+// its devices from 100, while built-in phone cameras are 0, 1, 2... So match either signal;
+// a phone's built-in cameras satisfy neither, which keeps the kiosk-only rotation off them.
+fun hasExternalCamera(context: Context): Boolean {
+    return try {
+        val cameraManager =
+            context.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+        cameraManager.cameraIdList.any { cameraId ->
+            val isExternalId = (cameraId.toIntOrNull() ?: 0) >= EXTERNAL_CAMERA_ID_BASE
+            isExternalId || cameraManager.getCameraCharacteristics(cameraId)
+                .get(android.hardware.camera2.CameraCharacteristics.LENS_FACING) ==
+                android.hardware.camera2.CameraCharacteristics.LENS_FACING_EXTERNAL
+        }
+    } catch (e: Exception) {
+        false
+    }
+}
+
 private fun currentSurfaceRotation(context: Context): Int {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         context.display?.rotation ?: Surface.ROTATION_0
@@ -1423,14 +1535,46 @@ suspend fun fixImageRotationFromUri(
         // data) since at this point we don't yet know whether a transform is even needed.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(tempFile.absolutePath, bounds)
-        if (rotationDegrees == 0 && applyOrientationFallback && bounds.outWidth > bounds.outHeight) {
+
+        // Landscape-native kiosk panel (e.g. the BigdroidOS mini PC) held portrait by the OS, with a
+        // USB camera. CameraX derives the EXIF tag from the display rotation, so EXIF already
+        // tracks which way the panel is turned (270 vs 90). Apply it once, then crop to portrait
+        // below, and never run the "wider than tall => 90" guess — that guess is what turned an
+        // already-corrected frame into a sideways/upside-down one on the second pass
+        // (PhotoEditView re-runs this function on the file this one produced).
+        // Gated on a non-zero EXIF tag so a file this function already wrote (tag reset to NORMAL)
+        // is left alone instead of being corrected twice.
+        // Measured on the device: EXIF alone comes out upright with the camera on the top edge. If
+        // the camera is ever re-mounted upside down, add a fixed rotation offset here.
+        // Deliberately not gated on isKioskDevice(): this unit isn't classified as a kiosk by that
+        // heuristic (no leanback feature, not device owner), yet it is exactly the target. A
+        // natively landscape panel held portrait plus an external camera is specific enough.
+        val kioskLandscapePanel = applyOrientationFallback &&
+            rotationDegrees != 0 &&
+            isLandscapePanelInPortrait(context) &&
+            hasExternalCamera(context)
+
+        Log.i(
+            "InternalCameraView",
+            "orientation fix: exifDeg=$rotationDegrees bounds=${bounds.outWidth}x${bounds.outHeight} " +
+                "fallback=$applyOrientationFallback kiosk=$isUsbOrKiosk " +
+                "landscapePanelInPortrait=${isLandscapePanelInPortrait(context)} " +
+                "externalCamera=${hasExternalCamera(context)} -> kioskBranch=$kioskLandscapePanel"
+        )
+
+        // No extra offset at display rotation 90 (reverse portrait, see
+        // kioskReversePortraitOrientation): capture.targetRotation is set to the live display
+        // rotation, so CameraX's EXIF tag already follows the turn and applying it alone matches
+        // the preview. An added +180 here made captures come out upside-down on the mini PC.
+
+        if (!kioskLandscapePanel && rotationDegrees == 0 && applyOrientationFallback && bounds.outWidth > bounds.outHeight) {
             rotationDegrees = 90
         }
 
         val shouldMirror = isFrontCamera && !isUsbOrKiosk
 
         val needsGrading = !(filter.isOriginal && adjustments.isNeutral)
-        if (rotationDegrees == 0 && !shouldMirror && !needsGrading) {
+        if (rotationDegrees == 0 && !shouldMirror && !needsGrading && !kioskLandscapePanel) {
             return@withContext FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -1472,6 +1616,17 @@ suspend fun fixImageRotationFromUri(
         // on every single photo capture.
         // (createBitmap returns the source itself for an identity matrix, so don't recycle then.)
         if (fixedBitmap !== bitmap) bitmap.recycle()
+
+        // The sensor is a 16:9 landscape frame, so once it is upright it is still wider than the
+        // portrait the rest of the app expects. Centre-crop to 9:16 — scaling it to fit would stretch
+        // the person, which is exactly the distortion this branch exists to avoid.
+        if (kioskLandscapePanel && fixedBitmap.width * 16 > fixedBitmap.height * 9) {
+            val cropWidth = (fixedBitmap.height * 9 / 16) and 1.inv()
+            val cropLeft = (fixedBitmap.width - cropWidth) / 2
+            val cropped = Bitmap.createBitmap(fixedBitmap, cropLeft, 0, cropWidth, fixedBitmap.height)
+            if (cropped !== fixedBitmap) fixedBitmap.recycle()
+            fixedBitmap = cropped
+        }
 
         if (needsGrading) {
             val filtered = Bitmap.createBitmap(fixedBitmap.width, fixedBitmap.height, Bitmap.Config.ARGB_8888)

@@ -8,6 +8,8 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -159,20 +161,26 @@ fun ZoomableImageGallery(
             horizontalAlignment = Alignment.End
         ) {
         qrContentForPage?.let { qrContent ->
+            // Phones are narrow enough that the tablet/kiosk-sized card covers too much of the
+            // photo, so shrink it there only (same <500dp cut-off as AppHeaderLogo).
+            val isMobile = LocalConfiguration.current.screenWidthDp.dp < 500.dp
             // Solid white card: a QR needs a full light quiet zone and max contrast to scan fast.
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(sdp(R.dimen._16sdp)))
+                    .clip(RoundedCornerShape(sdp(if (isMobile) R.dimen._10sdp else R.dimen._16sdp)))
                     .background(Color.White)
-                    .padding(sdp(R.dimen._10sdp)),
+                    .padding(sdp(if (isMobile) R.dimen._6sdp else R.dimen._10sdp)),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                QrCodeImage(content = qrContent, modifier = Modifier.size(sdp(R.dimen._150sdp)))
-                Spacer(Modifier.height(sdp(R.dimen._6sdp)))
+                QrCodeImage(
+                    content = qrContent,
+                    modifier = Modifier.size(if (isMobile) 96.dp else sdp(R.dimen._150sdp))
+                )
+                Spacer(Modifier.height(sdp(R.dimen._4sdp)))
                 Text(
                     text = "Scan to download",
                     color = Color.Black,
-                    fontSize = ssp(R.dimen._13ssp),
+                    fontSize = if (isMobile) ssp(R.dimen._10ssp) else ssp(R.dimen._13ssp),
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = PoppinsFamily
                 )
