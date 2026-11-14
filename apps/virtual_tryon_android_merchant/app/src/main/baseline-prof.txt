@@ -1,0 +1,6 @@
+# Hand-written baseline profile: precompiles the app's own startup path (Application, MainActivity,
+# navigation graph, theme, screens, view models) instead of interpreting it on first launch.
+# Compose/AndroidX libraries ship their own profiles. Replace with a generated profile
+# (Macrobenchmark) when one is set up.
+HSPLaivastra/nice/interactive/**;->**(**)**
+Laivastra/nice/interactive/**;

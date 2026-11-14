@@ -123,7 +123,7 @@ fun WebViewPage(
                 // Multiple items selected from the gallery.
                 clipData != null && clipData.itemCount > 0 ->
                     Array(clipData.itemCount) { i -> clipData.getItemAt(i).uri }
-                data?.data != null -> arrayOf(data.data!!)
+                data?.data != null -> data.data?.let { arrayOf(it) }
                 cameraUri != null -> arrayOf(cameraUri)
                 else -> null
             }

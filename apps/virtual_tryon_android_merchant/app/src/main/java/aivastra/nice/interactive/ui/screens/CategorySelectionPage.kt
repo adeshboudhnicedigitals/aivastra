@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.DropdownMenu
@@ -372,24 +373,14 @@ fun CategorySelectionPage(
                         Spacer(Modifier.height(sdp(R.dimen._12sdp)))
 
                         // ── Title ───────────────────────────────────────────
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            // Device mode: Quick Try-On is hidden (plan M4). The pill shows who is
-                            // running sessions instead, so staff can see assisted mode is on.
-                            if (staffEmail != null) {
-                                Text(
-                                    "Assisted · $staffEmail",
-                                    color = Color.White,
-                                    fontSize = ssp(R.dimen._10ssp),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = PoppinsFamily,
-                                    modifier = Modifier
-                                        .align(Alignment.CenterEnd)
-                                        .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
-                                        .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
-                                        .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._6sdp))
-                                )
-                            }
-                            Column {
+                        // A Row (not an overlaid Box): on phone widths the heading is wider than
+                        // the space left of the button, so the heading must take only the
+                        // remaining width and wrap instead of sliding under the button.
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = buildAnnotatedString {
                                         withStyle(SpanStyle(color = Color.White)) { append("Choose Your ") }
@@ -413,6 +404,49 @@ fun CategorySelectionPage(
                                         .size(width = sdp(R.dimen._40sdp), height = 2.dp)
                                         .background(Brush.horizontalGradient(listOf(ButtonGradientCenter, Color.Transparent)))
                                 )
+                            }
+                            Spacer(Modifier.width(sdp(R.dimen._8sdp)))
+                            // Device mode: Quick Try-On is hidden (plan M4). The pill shows who is
+                            // running sessions instead, so staff can see assisted mode is on.
+                            if (staffEmail != null) {
+                                Text(
+                                    "Assisted · $staffEmail",
+                                    color = Color.White,
+                                    fontSize = ssp(R.dimen._10ssp),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = PoppinsFamily,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
+                                        .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
+                                        .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._6sdp))
+                                )
+                            } else {
+                                // Quick try-on sits beside the heading: one camera photo, no category.
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(sdp(R.dimen._20sdp)))
+                                        .background(Brush.linearGradient(listOf(Color(0xFFE7A52C), Color(0xFF9B5100))))
+                                        .clickable(onClick = onQuickTryOnClick)
+                                        .padding(horizontal = sdp(R.dimen._12sdp), vertical = sdp(R.dimen._8sdp)),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.camera_icon_),
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(sdp(R.dimen._16sdp))
+                                    )
+                                    Spacer(Modifier.width(sdp(R.dimen._6sdp)))
+                                    Text(
+                                        "Quick Try-On",
+                                        color = Color.White,
+                                        fontSize = ssp(R.dimen._12ssp),
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = PoppinsFamily,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }

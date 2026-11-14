@@ -145,6 +145,9 @@ fun MultiTryOnResultsPage(
     }
     BackHandler(onBack = attemptLeave)
 
+    // Low-credit / out-of-credit heads-up. Each finished garment deducts credits, so re-check
+    // as the completed count grows; the tracker only alerts when a threshold is crossed.
+
     // Newest generation first. The view model appends in request order, so the grid and the
     // gallery (swipe order) both read from this reversed copy to stay in step with each other.
     val displayItems = remember(items) { items.asReversed() }
@@ -320,11 +323,12 @@ fun MultiTryOnResultsPage(
             )
         }
 
-        if (galleryStartIndex != null && completedUrls.isNotEmpty()) {
+        val startIndex = galleryStartIndex
+        if (startIndex != null && completedUrls.isNotEmpty()) {
             ZoomableImageGallery(
                 images = completedUrls,
                 jobIds = completedJobIds,
-                currentIndex = galleryStartIndex!!.coerceIn(0, completedUrls.lastIndex),
+                currentIndex = startIndex.coerceIn(0, completedUrls.lastIndex),
                 onIndexChange = { galleryStartIndex = it },
                 onClose = { galleryStartIndex = null },
                 statusBarH = statusBarH,
