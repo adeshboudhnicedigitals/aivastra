@@ -1,3 +1,22 @@
+# 2026-11-13 — Production env and deploy steps for the dev → main promotion (#693)
+
+- **Done (in the repo):** `SHOPIFY_INSTALL_NOTIFY_EMAILS` (#687) emails the operators when a shop first installs the Shopify app; a reinstall does not send.
+  Catalogue search (web and kiosk tablet route) now matches every word across label and SKU (#692). Both are in `main`.
+- **Outside the repo, not yet done (as of this entry):** `.env` on the VPS needs the entries below. They are runtime config, so a restart is enough — no rebuild.
+
+  | Var | Needed for | If unset |
+  |---|---|---|
+  | `SHOPIFY_INSTALL_NOTIFY_EMAILS` | comma-separated operator addresses emailed on a shop's first install; invalid addresses are dropped | feature off |
+  | `CRM_DATA_KEY` | 32-byte key sealing CRM phone numbers and channel tokens; also lets the retention loop run | CRM identification unavailable |
+  | `CRM_IDENTIFY_ENABLED` | literal `true` turns on shopper identification (needs `CRM_DATA_KEY`) | off |
+  | `ADMIN_MFA_KEY` | 32 bytes base64, seals each admin's TOTP secret | enrolment unavailable |
+  | `ADMIN_MFA_ENFORCE` | literal `true` forces TOTP for roles holding `accounts.read` / `credits.grant` | off |
+
+- **Order on deploy:** CI/CD → `db:migrate:prod` (migrations 0264–0271) → rebuild `@aivastra/types` and `@aivastra/db` → restart the API.
+- **Traps:** `ADMIN_MFA_ENFORCE=true` without `ADMIN_MFA_KEY` is a 503 on admin login (it fails closed, never skips). Losing or rotating `ADMIN_MFA_KEY` locks every
+  enrolled admin out until a SUPER_ADMIN resets their factor. Keep both enforcement flags off until their keys are set.
+- **Not done:** no value has been set or checked on the VPS from this session; confirm each with `docker compose config` (match the exact line, no `-A/-B/-C`).
+
 # 2026-11-13 — Insights CSV export (local, not committed)
 
 - **Done:** "Export CSV" on three Insights sections (retailer and console): summary (funnel + cart abandonment + reliability/cost), lost demand (items,
