@@ -17,7 +17,6 @@ camerax = "1.4.1"
 foundationLayout = "1.11.4"
 credentials = "1.5.0"
 googleid = "1.1.1"
-appUpdate = "2.1.0"
 googleServices = "4.5.0"
 firebaseCrashlyticsPlugin = "3.0.7"
 firebaseBom = "34.17.0"
@@ -54,7 +53,6 @@ androidx-credentials = { group = "androidx.credentials", name = "credentials", v
 androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version = "21.2.0" }
-play-app-update = { group = "com.google.android.play", name = "app-update", version.ref = "appUpdate" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
 firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }

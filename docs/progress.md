@@ -1,3 +1,19 @@
+# 2026-11-14 — Android "update available" popup via our own API (branch feat/android-update-popup, not pushed)
+
+- **Why:** the Play in-app-update API (`InAppUpdateChecker`) depends on per-device Play state: some devices never got the popup, and after updating
+  from the Play Store the listing kept offering "Update". Comparing version codes ourselves avoids both.
+- **Done:** `GET /v1/app/update-prompt?versionCode=N` (public, `modules/app-update/update-prompt.routes.ts`) reads `config:system.androidUpdate`
+  (`enabled`, `latestVersionCode`, title/message/ctaLabel; off by default) and returns `show: true` only when N < `latestVersionCode`. Admin edits it in
+  Settings → Credit plans → **App update** (`AndroidUpdateTab.tsx`). `virtual_tryon_android_multi_flow` calls it on every foreground and shows a
+  dismissible dialog (Later = until next launch) whose button opens `market://details?id=` with an https fallback. The Play `app-update` dependency and
+  `InAppUpdateChecker.kt` were removed from that app only.
+- **Release rule:** set `latestVersionCode` only to a build already installable by users, or they are told to update to something they cannot get.
+  It is the integer `versionCode` (currently 24 / 1.0.5), not the `1.0.x` name.
+- **Not done:** `virtual_tryon_android` and `virtual_tryon_android_merchant` still use the Play API checker. No force update (by request).
+  The Play Store page still showing "Update" after installing is a Play Console state issue (another track, rollout or signing), not fixed by this.
+- **Verification:** unit test with stubbed Redis passes (6/6); admin-web typechecks; Android `compileDebugKotlin` passes. The integration test
+  (`test/integration/app-update-prompt.test.ts`, covers the admin config round trip) was **not run** — no Docker on this machine. Popup not seen on a device.
+
 # 2026-11-13 — Production env and deploy steps for the dev → main promotion (#693)
 
 - **Done (in the repo):** `SHOPIFY_INSTALL_NOTIFY_EMAILS` (#687) emails the operators when a shop first installs the Shopify app; a reinstall does not send.

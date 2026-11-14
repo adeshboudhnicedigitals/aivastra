@@ -75,6 +75,7 @@ import { adminWhatsappConversationsRoutes } from './modules/admin/whatsapp-conve
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowChangeRequestsRoutes } from './modules/admin/workflow-change-requests.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
+import { appUpdatePromptRoutes } from './modules/app-update/update-prompt.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { inviteRoutes } from './modules/auth/invite.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -474,6 +475,7 @@ export async function buildServer(env: Env) {
   await app.register(unlimitedPlanRenewalRoutes);
   await app.register(unlimitedPlanLoginCheckRoutes);
   await app.register(renewalPromptRoutes);
+  await app.register(appUpdatePromptRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(backgroundsRoutes);

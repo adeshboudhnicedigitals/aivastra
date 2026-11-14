@@ -287,6 +287,20 @@ export const SystemConfigBody = z.object({
       supportEmail: z.string().email().max(120).nullable(),
     })
     .optional(),
+  // "Update available" popup for the virtual try-on Android app
+  // (GET /v1/app/update-prompt). The app sends its own versionCode and the server
+  // compares it with `latestVersionCode`, so Play's per-device in-app-update state
+  // (which skips some devices and can keep offering a build already installed) is
+  // out of the loop. Set latestVersionCode only to a build users can actually install.
+  androidUpdate: z
+    .object({
+      enabled: z.boolean(),
+      latestVersionCode: z.number().int().min(0).max(2_100_000_000),
+      title: z.string().min(1).max(120),
+      message: z.string().min(1).max(500),
+      ctaLabel: z.string().min(1).max(40),
+    })
+    .optional(),
   // Seller details printed on every GST invoice (issueInvoiceIfNeeded,
   // apps/api/src/modules/payments/invoice.ts). All optional — invoices
   // render with blank fields until an admin fills these in.

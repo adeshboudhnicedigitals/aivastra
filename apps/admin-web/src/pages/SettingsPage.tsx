@@ -10,6 +10,7 @@ import { useCrumb } from '../context/BreadcrumbContext';
 import { useCloseOverlay } from '../hooks/use-close-overlay';
 import { useUrlState, useUrlStateMulti } from '../hooks/use-url-state';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import AndroidUpdateTab from './settings/AndroidUpdateTab';
 import ImageCompressionTab from './settings/ImageCompressionTab';
 import JobCostsTab from './settings/JobCostsTab';
 import ProdSnapshotTab from './settings/ProdSnapshotTab';
@@ -278,10 +279,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     ? requestedSection
     : 'appearance';
   const [creditTabParam, setCreditTabParam] = useUrlState('creditTab');
-  const creditSubTab: 'purchasable' | 'job-costs' | 'shopify' | 'renewal-popup' =
+  const creditSubTab: 'purchasable' | 'job-costs' | 'shopify' | 'renewal-popup' | 'app-update' =
     creditTabParam === 'job-costs' ||
     creditTabParam === 'shopify' ||
-    creditTabParam === 'renewal-popup'
+    creditTabParam === 'renewal-popup' ||
+    creditTabParam === 'app-update'
       ? creditTabParam
       : 'purchasable';
   const [pageSize, setPageSize] = useState<number>(25);
@@ -770,6 +772,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                 { k: 'job-costs', label: 'Job Costs' },
                 { k: 'shopify', label: 'Shopify' },
                 { k: 'renewal-popup', label: 'Renewal popup' },
+                { k: 'app-update', label: 'App update' },
               ] as const
             ).map((t) => (
               <button
@@ -786,6 +789,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           {creditSubTab === 'job-costs' && <JobCostsTab toast={toast} />}
           {creditSubTab === 'shopify' && <ShopifyCreditsTab toast={toast} />}
           {creditSubTab === 'renewal-popup' && <RenewalPopupTab toast={toast} />}
+          {creditSubTab === 'app-update' && <AndroidUpdateTab toast={toast} />}
         </>
       )}
 
