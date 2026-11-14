@@ -21,6 +21,7 @@ import {
   resolvePixverseVideoPricing,
 } from '../../lib/resolution-config.js';
 import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
+import { DEFAULT_ANDROID_UPDATE } from '../app-update/update-prompt.routes.js';
 import { notComparisonJob, notComparisonSystemUser } from '../comparison/exclusion.js';
 import { DEFAULT_RENEWAL_PROMPT } from '../credits/renewal-prompt.routes.js';
 import { CREDIT_PACKS } from '../shopify/packs.js';
@@ -121,6 +122,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
     cfg.seller = { ...DEFAULT_SELLER_CONFIG, ...cfg.seller };
     cfg.renewalPrompt = { ...DEFAULT_RENEWAL_PROMPT, ...cfg.renewalPrompt };
+    cfg.androidUpdate = { ...DEFAULT_ANDROID_UPDATE, ...cfg.androidUpdate };
     return cfg;
   });
 

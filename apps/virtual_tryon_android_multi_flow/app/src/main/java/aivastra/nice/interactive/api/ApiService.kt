@@ -1,5 +1,6 @@
 package aivastra.nice.interactive.api
 
+import aivastra.nice.interactive.data.models.AppUpdatePromptResponse
 import aivastra.nice.interactive.data.models.AppVideoConfigResponse
 import aivastra.nice.interactive.data.models.CatalogAppDeviceCodeResponse
 import aivastra.nice.interactive.data.models.MeTierResponse
@@ -150,6 +151,14 @@ interface ApiService {
 
     @GET("v1/app/renewal-prompt")
     suspend fun getRenewalPrompt(): Response<RenewalPromptResponse>
+
+    /**
+     * Whether to offer a newer app version. Public (no login needed); the server compares
+     * [versionCode] with the latest one set in the admin panel. Callers treat any failure
+     * as "don't show" so an outage never nags or blocks anyone.
+     */
+    @GET("v1/app/update-prompt")
+    suspend fun getAppUpdatePrompt(@Query("versionCode") versionCode: Int): Response<AppUpdatePromptResponse>
 
     /** Submits a contact/support inquiry. Returns 204 No Content on success. */
     @POST("v1/contact")

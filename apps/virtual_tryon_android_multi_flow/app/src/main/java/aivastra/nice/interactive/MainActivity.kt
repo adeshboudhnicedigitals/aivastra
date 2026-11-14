@@ -19,7 +19,7 @@ import aivastra.nice.interactive.data.session.SessionManager
 import aivastra.nice.interactive.navigation.AppNavGraph
 import aivastra.nice.interactive.ui.components.NoInternetBanner
 import aivastra.nice.interactive.ui.theme.AiVastraTheme
-import aivastra.nice.interactive.update.InAppUpdateChecker
+import aivastra.nice.interactive.update.AppUpdatePrompt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        InAppUpdateChecker()
+                        AppUpdatePrompt()
 
                         // Observes NetworkMonitor directly and lives above every screen, so
                         // connectivity loss/recovery is visible app-wide without each screen
